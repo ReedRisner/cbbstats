@@ -28,7 +28,17 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const today = useMemo(() => toYyyyMmDd(new Date()), []);
+  const today = useMemo(() => {
+    const now = new Date();
+    const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const day = toYyyyMmDd(todayDate);
+
+    return {
+      display: formatDate(`${day}T12:00:00`),
+      start: `${day}T00:00:00`,
+      end: `${day}T23:59:59`,
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,13 +51,13 @@ export default function HomePage() {
         const [gamesData, linesData, rankingsData, ratingsData] = await Promise.all([
           apiFetch<Game[]>("/games", {
             season: SEASON,
-            startDateRange: today,
-            endDateRange: today,
+            startDateRange: today.start,
+            endDateRange: today.end,
           }),
           apiFetch<BettingLine[]>("/lines", {
             season: SEASON,
-            startDateRange: today,
-            endDateRange: today,
+            startDateRange: today.start,
+            endDateRange: today.end,
           }),
           apiFetch<Ranking[]>("/rankings", { season: SEASON }),
           apiFetch<AdjustedRating[]>("/ratings/adjusted", { season: SEASON }),
@@ -75,7 +85,7 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [today]);
+  }, [today.end, today.start]);
 
   const linesMap = useMemo(() => new Map(lines.map((line) => [line.gameId, line])), [lines]);
   const ratingsMap = useMemo(() => new Map(ratings.map((rating) => [rating.teamId, rating])), [ratings]);
@@ -116,7 +126,7 @@ export default function HomePage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-heading text-2xl text-zinc-100">Today&apos;s Games</h2>
-            <p className="font-mono text-xs text-zinc-400">{formatDate(today)}</p>
+            <p className="font-mono text-xs text-zinc-400">{today.display}</p>
           </div>
           <Tabs tabs={["Today", "Recent"]} active={dateMode} onChange={(tab) => setDateMode(tab as "Today" | "Recent")} />
         </div>
@@ -151,13 +161,14 @@ export default function HomePage() {
               <Link
                 key={`${row.pollDate}-${row.teamId}`}
                 href={`/team/${encodeURIComponent(row.team)}`}
-                className="grid grid-cols-[34px_1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 hover:bg-zinc-800"
+                className="grid grid-cols-[34px_1fr_auto_auto] items-center gap-2 rounded-md px-2 py-1.5 hover:bg-zinc-800"
               >
                 <span className="font-mono text-xs text-amber-300">#{row.ranking}</span>
                 <div>
                   <p className="text-sm font-medium text-zinc-100">{row.team}</p>
                   <p className="text-xs text-zinc-400">{row.conference}</p>
                 </div>
+                <span className="font-mono text-xs text-zinc-400">{row.points} pts</span>
                 <span className="font-mono text-xs text-zinc-400">{row.firstPlaceVotes} FPV</span>
               </Link>
             ))}
