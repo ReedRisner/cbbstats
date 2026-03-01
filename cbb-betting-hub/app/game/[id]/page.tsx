@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
@@ -64,7 +64,11 @@ function periodLabel(index: number): string {
 export default function GameDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const gameId = Number(params.id);
+  const fallbackHome = searchParams.get("home");
+  const fallbackAway = searchParams.get("away");
+  const fallbackDate = searchParams.get("date");
 
   const [tab, setTab] = useState<TabKey>("Overview");
   const [game, setGame] = useState<Game | null>(null);
@@ -93,11 +97,39 @@ export default function GameDetailPage() {
       setWarnings([]);
       setTroubleshooting([]);
 
+      const fallbackDay = fallbackDate ? new Date(fallbackDate) : null;
+      const fallbackStart =
+        fallbackDay && !Number.isNaN(fallbackDay.getTime())
+          ? new Date(fallbackDay.getFullYear(), fallbackDay.getMonth(), fallbackDay.getDate())
+          : null;
+      const fallbackEnd =
+        fallbackStart ? new Date(fallbackStart.getFullYear(), fallbackStart.getMonth(), fallbackStart.getDate(), 23, 59, 59) : null;
+
       const gameLookupConfigs = [
         { label: `GET /games?season=${SEASON}&id=${gameId}`, request: apiFetch<Game[]>("/games", { season: SEASON, id: gameId }) },
         { label: `GET /games?id=${gameId}`, request: apiFetch<Game[]>("/games", { id: gameId }) },
         { label: `GET /games?season=${SEASON - 1}&id=${gameId}`, request: apiFetch<Game[]>("/games", { season: SEASON - 1, id: gameId }) },
         { label: `GET /games?season=${SEASON - 2}&id=${gameId}`, request: apiFetch<Game[]>("/games", { season: SEASON - 2, id: gameId }) },
+        ...(fallbackHome && fallbackAway && fallbackStart && fallbackEnd
+          ? [
+              {
+                label: `GET /games?season=${SEASON}&startDateRange=${fallbackStart.toISOString()}&endDateRange=${fallbackEnd.toISOString()} (team-match fallback)`,
+                request: apiFetch<Game[]>("/games", {
+                  season: SEASON,
+                  startDateRange: fallbackStart.toISOString(),
+                  endDateRange: fallbackEnd.toISOString(),
+                }),
+              },
+              {
+                label: `GET /games?season=${SEASON - 1}&startDateRange=${fallbackStart.toISOString()}&endDateRange=${fallbackEnd.toISOString()} (team-match fallback)`,
+                request: apiFetch<Game[]>("/games", {
+                  season: SEASON - 1,
+                  startDateRange: fallbackStart.toISOString(),
+                  endDateRange: fallbackEnd.toISOString(),
+                }),
+              },
+            ]
+          : []),
       ];
 
       const gameLookups = await Promise.allSettled(gameLookupConfigs.map((entry) => entry.request));
@@ -112,7 +144,16 @@ export default function GameDetailPage() {
         const label = gameLookupConfigs[index]?.label ?? `lookup-${index}`;
         if (lookup.status === "fulfilled") {
           lookupDebug.push(`${label} → ${lookup.value.length} results`);
-          gameMatch = lookup.value.find((row) => row.id === gameId) ?? gameMatch;
+          const byId = lookup.value.find((row) => row.id === gameId) ?? null;
+          const byTeams =
+            !byId && fallbackHome && fallbackAway
+              ? lookup.value.find(
+                  (row) =>
+                    (row.homeTeam === fallbackHome && row.awayTeam === fallbackAway) ||
+                    (row.homeTeam === fallbackAway && row.awayTeam === fallbackHome)
+                ) ?? null
+              : null;
+          gameMatch = byId ?? byTeams ?? gameMatch;
           if (gameMatch) break;
         } else {
           lookupDebug.push(`${label} → failed: ${String(lookup.reason)}`);
@@ -194,7 +235,7 @@ export default function GameDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [gameId]);
+  }, [fallbackAway, fallbackDate, fallbackHome, gameId]);
 
   const awayTeamStats = useMemo(
     () => teamStats.find((row) => row.gameId === gameId && !row.isHome) ?? null,

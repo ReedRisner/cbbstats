@@ -63,9 +63,18 @@ export function GameCard({ game, line, homeRating, awayRating, homeApRank, awayA
   const isFinal = game.status.toUpperCase().includes("FINAL");
   const isLive = game.status.toUpperCase().includes("LIVE") || game.status.toUpperCase().includes("IN PROGRESS");
 
+  const gameHref = {
+    pathname: `/game/${game.id}`,
+    query: {
+      home: game.homeTeam,
+      away: game.awayTeam,
+      date: game.startDate,
+    },
+  };
+
   return (
     <Link
-      href={`/game/${game.id}`}
+      href={gameHref}
       className="grid gap-4 rounded-xl border border-white/5 bg-zinc-900/80 p-4 transition hover:border-amber-400/40 hover:bg-zinc-900"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
