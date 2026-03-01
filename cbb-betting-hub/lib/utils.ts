@@ -23,7 +23,14 @@ export function formatTimeWithZone(d: string | null): string {
 }
 
 export function pct(v: number | null | undefined): string {
-  return v != null ? `${(v * 100).toFixed(1)}%` : "—";
+  if (v == null) return "—";
+  const normalized = Math.abs(v) <= 1 ? v * 100 : v;
+  return `${normalized.toFixed(2)}%`;
+}
+
+export function normalizePct(v: number | null | undefined): number | null {
+  if (v == null) return null;
+  return Math.abs(v) <= 1 ? v * 100 : v;
 }
 
 export function dec(v: number | null | undefined, d = 1): string {
