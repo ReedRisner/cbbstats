@@ -7,7 +7,6 @@ import { BettingLines } from "@/components/BettingLines";
 import { BoxScore } from "@/components/BoxScore";
 import { LineupCard } from "@/components/LineupCard";
 import { ErrorMsg } from "@/components/ui/ErrorMsg";
-import { FourFactorsBar } from "@/components/ui/FourFactorsBar";
 import { Loader } from "@/components/ui/Loader";
 import { Tabs } from "@/components/ui/Tabs";
 import { apiFetch } from "@/lib/api";
@@ -16,7 +15,7 @@ import { dec, formatDate, formatTimeWithZone, moneyline, normalizePct, pct, sign
 
 const SEASON = 2026;
 
-type TabKey = "Overview" | "Box Score" | "Lineups" | "Betting";
+type TabKey = "Overview" | "Box Score" | "Play by Play" | "Lineups" | "Betting";
 type LineupSortKey = "minutes" | "offRating" | "defRating" | "netRating" | "points" | "possessions";
 
 type TeamComparisonRow = {
@@ -307,13 +306,13 @@ export default function GameDetailPage() {
   }, [awayTeamStats, homeTeamStats]);
 
   const shotZoneSummary = useMemo<ShotZoneSummary[]>(() => {
-    const zoneBuckets = ["Rim", "Paint", "Mid-Range", "Corner 3", "Above-the-Break 3", "Free Throw", "Other"];
+    const zoneBuckets = ["Rim", "Paint", "Mid-Range", "Corner 3", "Three Point", "Free Throw", "Other"];
     const toZone = (range: string | undefined) => {
       const text = (range ?? "").toLowerCase();
       if (!text) return "Other";
       if (text.includes("free throw")) return "Free Throw";
       if (text.includes("corner") && text.includes("3")) return "Corner 3";
-      if (text.includes("3") || text.includes("three")) return "Above-the-Break 3";
+      if (text.includes("3") || text.includes("three")) return "Three Point";
       if (text.includes("rim") || text.includes("layup") || text.includes("dunk") || text.includes("tip")) return "Rim";
       if (text.includes("paint")) return "Paint";
       if (text.includes("mid" ) || text.includes("jumper") || text.includes("two")) return "Mid-Range";
@@ -379,6 +378,14 @@ export default function GameDetailPage() {
 
   const awayWon = (game.awayPoints ?? -1) > (game.homePoints ?? -1);
   const homeWon = (game.homePoints ?? -1) > (game.awayPoints ?? -1);
+
+  const awayEloDelta = game.awayTeamEloStart != null && game.awayTeamEloEnd != null
+    ? game.awayTeamEloEnd - game.awayTeamEloStart
+    : null;
+  const homeEloDelta = game.homeTeamEloStart != null && game.homeTeamEloEnd != null
+    ? game.homeTeamEloEnd - game.homeTeamEloStart
+    : null;
+  const excitementIndex = game.excitement;
 
   return (
     <div className="space-y-6">
@@ -449,7 +456,7 @@ export default function GameDetailPage() {
           <p className="text-right">
             Excitement Index:{" "}
             <span className="font-mono text-amber-300">
-              {dec(game.excitement, 2)}
+              {dec(excitementIndex, 2)}
             </span>
           </p>
         </div>
@@ -458,13 +465,13 @@ export default function GameDetailPage() {
           <div className="rounded-lg border border-white/5 bg-zinc-800/50 p-3 text-sm">
             <p className="text-zinc-400">Away ELO</p>
             <p className="font-mono text-zinc-100">
-              {dec(game.awayTeamEloStart, 1)} → {dec(game.awayTeamEloEnd, 1)}
+              {dec(game.awayTeamEloStart, 1)} → {dec(game.awayTeamEloEnd, 1)} ({awayEloDelta == null ? "—" : `${awayEloDelta >= 0 ? "+" : ""}${dec(awayEloDelta, 1)}`})
             </p>
           </div>
           <div className="rounded-lg border border-white/5 bg-zinc-800/50 p-3 text-right text-sm">
             <p className="text-zinc-400">Home ELO</p>
             <p className="font-mono text-zinc-100">
-              {dec(game.homeTeamEloStart, 1)} → {dec(game.homeTeamEloEnd, 1)}
+              {dec(game.homeTeamEloStart, 1)} → {dec(game.homeTeamEloEnd, 1)} ({homeEloDelta == null ? "—" : `${homeEloDelta >= 0 ? "+" : ""}${dec(homeEloDelta, 1)}`})
             </p>
           </div>
         </div>
@@ -492,7 +499,7 @@ export default function GameDetailPage() {
       )}
 
       <Tabs
-        tabs={["Overview", "Box Score", "Lineups", "Betting"]}
+        tabs={["Overview", "Box Score", "Play by Play", "Lineups", "Betting"]}
         active={tab}
         onChange={(next) => setTab(next as TabKey)}
       />
@@ -600,60 +607,27 @@ export default function GameDetailPage() {
                 )}
               </div>
 
-              <FourFactorsBar
-                factors={[
-                  {
-                    label: "eFG%",
-                    team: awayTeamStats.teamStats.fourFactors.effectiveFieldGoalPct,
-                    opponent:
-                      homeTeamStats.teamStats.fourFactors.effectiveFieldGoalPct,
-                  },
-                  {
-                    label: "TO Ratio",
-                    team: awayTeamStats.teamStats.fourFactors.turnoverRatio,
-                    opponent: homeTeamStats.teamStats.fourFactors.turnoverRatio,
-                  },
-                  {
-                    label: "OREB%",
-                    team: awayTeamStats.teamStats.fourFactors.offensiveReboundPct,
-                    opponent:
-                      homeTeamStats.teamStats.fourFactors.offensiveReboundPct,
-                  },
-                  {
-                    label: "FT Rate",
-                    team: awayTeamStats.teamStats.fourFactors.freeThrowRate,
-                    opponent: homeTeamStats.teamStats.fourFactors.freeThrowRate,
-                  },
-                ]}
-              />
+              <div className="overflow-x-auto rounded-xl border border-white/5 bg-zinc-900/80 p-4">
+                <h3 className="mb-3 font-heading text-xl text-amber-400">Four Factors</h3>
+                <table className="min-w-[560px] w-full text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase tracking-wide text-zinc-400">
+                      <th className="px-2 py-2 text-left">Factor</th>
+                      <th className="px-2 py-2 text-right">{game.awayTeam}</th>
+                      <th className="px-2 py-2 text-right">{game.homeTeam}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-t border-white/10"><td className="px-2 py-2 text-zinc-300">eFG%</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(awayTeamStats.teamStats.fourFactors.effectiveFieldGoalPct), 1)}</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(homeTeamStats.teamStats.fourFactors.effectiveFieldGoalPct), 1)}</td></tr>
+                    <tr className="border-t border-white/10"><td className="px-2 py-2 text-zinc-300">TO Ratio</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(awayTeamStats.teamStats.fourFactors.turnoverRatio), 1)}</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(homeTeamStats.teamStats.fourFactors.turnoverRatio), 1)}</td></tr>
+                    <tr className="border-t border-white/10"><td className="px-2 py-2 text-zinc-300">OREB%</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(awayTeamStats.teamStats.fourFactors.offensiveReboundPct), 1)}</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(homeTeamStats.teamStats.fourFactors.offensiveReboundPct), 1)}</td></tr>
+                    <tr className="border-t border-white/10"><td className="px-2 py-2 text-zinc-300">FT Rate</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(awayTeamStats.teamStats.fourFactors.freeThrowRate), 1)}</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(homeTeamStats.teamStats.fourFactors.freeThrowRate), 1)}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
             </>
           )}
-
-          <div className="rounded-xl border border-white/5 bg-zinc-900/80 p-4">
-            <h3 className="mb-3 font-heading text-xl text-amber-400">Play by Play</h3>
-            {recentPlays.length === 0 ? (
-              <p className="text-sm text-zinc-400">No play-by-play available.</p>
-            ) : (
-              <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                {recentPlays.map((play) => (
-                  <div
-                    key={play.id}
-                    className="rounded-lg border border-white/5 bg-zinc-800/60 px-3 py-2"
-                  >
-                    <div className="flex items-center justify-between gap-2 text-xs text-zinc-400">
-                      <span>
-                        P{play.period} · {play.clock}
-                      </span>
-                      <span className="font-mono">
-                        {play.awayScore} - {play.homeScore}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-zinc-100">{play.playText}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
 
           <div className="rounded-xl border border-amber-400/20 bg-amber-400/5 p-4 text-sm">
             <h3 className="mb-2 font-semibold text-amber-300">Betting Snapshot</h3>
@@ -676,16 +650,40 @@ export default function GameDetailPage() {
           {awayPlayers && (
             <BoxScore
               teamData={awayPlayers}
+              teamTotals={awayTeamStats?.teamStats}
               onPlayerClick={(id) => router.push(`/player/${id}`)}
             />
           )}
           {homePlayers && (
             <BoxScore
               teamData={homePlayers}
+              teamTotals={homeTeamStats?.teamStats}
               onPlayerClick={(id) => router.push(`/player/${id}`)}
             />
           )}
           {!awayPlayers && !homePlayers && <ErrorMsg message="Box score unavailable." />}
+        </section>
+      )}
+
+
+      {tab === "Play by Play" && (
+        <section className="rounded-xl border border-white/5 bg-zinc-900/80 p-4">
+          <h3 className="mb-3 font-heading text-xl text-amber-400">Play by Play</h3>
+          {recentPlays.length === 0 ? (
+            <p className="text-sm text-zinc-400">No play-by-play available.</p>
+          ) : (
+            <div className="max-h-[620px] space-y-2 overflow-y-auto pr-1">
+              {recentPlays.map((play) => (
+                <div key={play.id} className="rounded-lg border border-white/5 bg-zinc-800/60 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2 text-xs text-zinc-400">
+                    <span>P{play.period} · {play.clock}</span>
+                    <span className="font-mono">{play.awayScore} - {play.homeScore}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-zinc-100">{play.playText}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
