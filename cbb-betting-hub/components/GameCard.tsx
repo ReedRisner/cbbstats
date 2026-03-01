@@ -42,9 +42,11 @@ function TeamRow({
       <div>
         <div className="flex flex-wrap items-center gap-2">
           <p className="font-semibold text-zinc-100">{name}</p>
-          <span className="rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-300">
-            AP #{apRank ?? "—"}
-          </span>
+          {apRank != null && (
+            <span className="rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-300">
+              AP #{apRank}
+            </span>
+          )}
           <span className="rounded border border-white/10 bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
             Adj #{adjRank ?? "—"}
           </span>
