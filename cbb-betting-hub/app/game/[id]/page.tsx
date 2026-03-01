@@ -149,26 +149,43 @@ export default function GameDetailPage() {
       const nextWarnings: string[] = [];
       const lookupDebug: string[] = [];
 
+      const fallbackDateKey = fallbackDate?.slice(0, 10) ?? null;
+      const scoreGameMatch = (row: Game): number => {
+        let score = 0;
+        if (row.id === gameId) score += 8;
+        if (
+          fallbackHome &&
+          fallbackAway &&
+          ((row.homeTeam === fallbackHome && row.awayTeam === fallbackAway) ||
+            (row.homeTeam === fallbackAway && row.awayTeam === fallbackHome))
+        ) {
+          score += 4;
+        }
+        if (fallbackDateKey && row.startDate?.slice(0, 10) === fallbackDateKey) {
+          score += 2;
+        }
+        return score;
+      };
+
       let gameMatch: Game | null = null;
+      let bestScore = -1;
       for (const [index, lookup] of gameLookups.entries()) {
         const label = gameLookupConfigs[index]?.label ?? `lookup-${index}`;
         if (lookup.status === "fulfilled") {
           lookupDebug.push(`${label} → ${lookup.value.length} results`);
-          const byId = lookup.value.find((row) => row.id === gameId) ?? null;
-          const byTeams =
-            !byId && fallbackHome && fallbackAway
-              ? lookup.value.find(
-                  (row) =>
-                    (row.homeTeam === fallbackHome && row.awayTeam === fallbackAway) ||
-                    (row.homeTeam === fallbackAway && row.awayTeam === fallbackHome)
-                ) ?? null
-              : null;
-          gameMatch = byId ?? byTeams ?? gameMatch;
-          if (gameMatch) break;
+          for (const row of lookup.value) {
+            const score = scoreGameMatch(row);
+            if (score > bestScore) {
+              bestScore = score;
+              gameMatch = row;
+            }
+          }
         } else {
           lookupDebug.push(`${label} → failed: ${String(lookup.reason)}`);
         }
       }
+
+      if (bestScore <= 0) gameMatch = null;
 
       if (!gameMatch) {
         setGame(null);
