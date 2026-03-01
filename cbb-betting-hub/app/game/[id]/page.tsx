@@ -91,30 +91,51 @@ export default function GameDetailPage() {
       setError(null);
       setWarnings([]);
 
-      const results = await Promise.allSettled([
+      const gameLookups = await Promise.allSettled([
         apiFetch<Game[]>("/games", { season: SEASON, id: gameId }),
-        apiFetch<GameTeamStats[]>("/games/teams", { season: SEASON, gameId }),
-        apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, gameId }),
-        apiFetch<BettingLine[]>("/lines", { season: SEASON, gameId }),
-        apiFetch<Lineup[]>(`/lineups/game/${gameId}`),
-        apiFetch<Play[]>("/plays", { season: SEASON, gameId }),
+        apiFetch<Game[]>("/games", { id: gameId }),
+        apiFetch<Game[]>("/games", { season: SEASON - 1, id: gameId }),
       ]);
 
       if (cancelled) return;
 
       const nextWarnings: string[] = [];
 
-      const gameResult = results[0];
       let gameMatch: Game | null = null;
-      if (gameResult.status === "fulfilled") {
-        gameMatch = gameResult.value.find((row) => row.id === gameId) ?? null;
-        setGame(gameMatch);
-      } else {
-        setGame(null);
-        nextWarnings.push(`Game info unavailable: ${String(gameResult.reason)}`);
+      for (const lookup of gameLookups) {
+        if (lookup.status === "fulfilled") {
+          gameMatch = lookup.value.find((row) => row.id === gameId) ?? gameMatch;
+          if (gameMatch) break;
+        }
       }
 
-      const teamResult = results[1];
+      if (!gameMatch) {
+        setGame(null);
+        setTeamStats([]);
+        setPlayerStats([]);
+        setLines(null);
+        setLineups([]);
+        setPlays([]);
+        setError("Unable to load game details");
+        setLoading(false);
+        return;
+      }
+
+      setGame(gameMatch);
+
+      const resolvedSeason = gameMatch.season ?? SEASON;
+
+      const results = await Promise.allSettled([
+        apiFetch<GameTeamStats[]>("/games/teams", { season: resolvedSeason, gameId }),
+        apiFetch<GamePlayerStats[]>("/games/players", { season: resolvedSeason, gameId }),
+        apiFetch<BettingLine[]>("/lines", { season: resolvedSeason, gameId }),
+        apiFetch<Lineup[]>(`/lineups/game/${gameId}`),
+        apiFetch<Play[]>("/plays", { season: resolvedSeason, gameId }),
+      ]);
+
+      if (cancelled) return;
+
+      const teamResult = results[0];
       if (teamResult.status === "fulfilled") {
         setTeamStats(teamResult.value.filter((row) => row.gameId === gameId));
       } else {
@@ -122,7 +143,7 @@ export default function GameDetailPage() {
         nextWarnings.push(`Team stats unavailable: ${String(teamResult.reason)}`);
       }
 
-      const playerResult = results[2];
+      const playerResult = results[1];
       if (playerResult.status === "fulfilled") {
         setPlayerStats(playerResult.value.filter((row) => row.gameId === gameId));
       } else {
@@ -130,7 +151,7 @@ export default function GameDetailPage() {
         nextWarnings.push(`Player stats unavailable: ${String(playerResult.reason)}`);
       }
 
-      const linesResult = results[3];
+      const linesResult = results[2];
       if (linesResult.status === "fulfilled") {
         setLines(linesResult.value.find((row) => row.gameId === gameId) ?? null);
       } else {
@@ -138,7 +159,7 @@ export default function GameDetailPage() {
         nextWarnings.push(`Betting lines unavailable: ${String(linesResult.reason)}`);
       }
 
-      const lineupsResult = results[4];
+      const lineupsResult = results[3];
       if (lineupsResult.status === "fulfilled") {
         setLineups(lineupsResult.value);
       } else {
@@ -146,16 +167,12 @@ export default function GameDetailPage() {
         nextWarnings.push(`Lineups unavailable: ${String(lineupsResult.reason)}`);
       }
 
-      const playsResult = results[5];
+      const playsResult = results[4];
       if (playsResult.status === "fulfilled") {
         setPlays(playsResult.value.filter((row) => row.gameId === gameId));
       } else {
         setPlays([]);
         nextWarnings.push(`Play-by-play unavailable: ${String(playsResult.reason)}`);
-      }
-
-      if (!gameMatch) {
-        setError("Unable to load game details");
       }
 
       setWarnings(nextWarnings);
