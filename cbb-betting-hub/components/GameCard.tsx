@@ -7,6 +7,8 @@ interface GameCardProps {
   line?: BettingLine;
   homeRating?: AdjustedRating;
   awayRating?: AdjustedRating;
+  homeApRank?: number;
+  awayApRank?: number;
 }
 
 function StatusBadge({ label, tone = "default", pulse = false }: { label: string; tone?: "default" | "amber" | "green"; pulse?: boolean }) {
@@ -24,22 +26,27 @@ function TeamRow({
   name,
   conference,
   points,
-  rank,
+  apRank,
+  adjRank,
 }: {
   side: "Away" | "Home";
   name: string;
   conference: string;
   points: number | null;
-  rank?: number;
+  apRank?: number;
+  adjRank?: number;
 }) {
   return (
     <div className="grid grid-cols-[52px_1fr_auto] items-center gap-3">
       <span className="font-mono text-xs uppercase tracking-wide text-zinc-500">{side}</span>
       <div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <p className="font-semibold text-zinc-100">{name}</p>
           <span className="rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-300">
-            Adj #{rank ?? "—"}
+            AP #{apRank ?? "—"}
+          </span>
+          <span className="rounded border border-white/10 bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
+            Adj #{adjRank ?? "—"}
           </span>
         </div>
         <p className="text-xs text-zinc-400">{conference}</p>
@@ -49,7 +56,7 @@ function TeamRow({
   );
 }
 
-export function GameCard({ game, line, homeRating, awayRating }: GameCardProps) {
+export function GameCard({ game, line, homeRating, awayRating, homeApRank, awayApRank }: GameCardProps) {
   const primaryLine = line?.lines?.[0];
   const isFinal = game.status.toUpperCase().includes("FINAL");
   const isLive = game.status.toUpperCase().includes("LIVE") || game.status.toUpperCase().includes("IN PROGRESS");
@@ -70,9 +77,23 @@ export function GameCard({ game, line, homeRating, awayRating }: GameCardProps) 
       </div>
 
       <div className="grid gap-2">
-        <TeamRow side="Away" name={game.awayTeam} conference={game.awayConference} points={game.awayPoints} rank={awayRating?.rankings.net} />
+        <TeamRow
+          side="Away"
+          name={game.awayTeam}
+          conference={game.awayConference}
+          points={game.awayPoints}
+          apRank={awayApRank}
+          adjRank={awayRating?.rankings.net}
+        />
         <div className="pl-[52px] font-mono text-sm text-zinc-500">{game.homePoints == null && game.awayPoints == null ? "VS" : ""}</div>
-        <TeamRow side="Home" name={game.homeTeam} conference={game.homeConference} points={game.homePoints} rank={homeRating?.rankings.net} />
+        <TeamRow
+          side="Home"
+          name={game.homeTeam}
+          conference={game.homeConference}
+          points={game.homePoints}
+          apRank={homeApRank}
+          adjRank={homeRating?.rankings.net}
+        />
       </div>
 
       <div className="grid gap-3 border-t border-white/5 pt-3 md:grid-cols-[1fr_auto] md:items-end">

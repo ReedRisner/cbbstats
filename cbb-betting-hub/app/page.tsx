@@ -112,6 +112,7 @@ export default function HomePage() {
   }, [rankings]);
 
   const apTop25TeamIds = useMemo(() => new Set(apTop25.map((row) => row.teamId)), [apTop25]);
+  const apRankByTeamId = useMemo(() => new Map(apTop25.map((row) => [row.teamId, row.ranking])), [apTop25]);
 
   const conferenceOptions = useMemo(() => {
     const conferenceSet = new Set<string>();
@@ -221,6 +222,8 @@ export default function HomePage() {
                 line={linesMap.get(game.id)}
                 homeRating={ratingsMap.get(game.homeTeamId)}
                 awayRating={ratingsMap.get(game.awayTeamId)}
+                homeApRank={apRankByTeamId.get(game.homeTeamId)}
+                awayApRank={apRankByTeamId.get(game.awayTeamId)}
               />
             ))}
           </div>
