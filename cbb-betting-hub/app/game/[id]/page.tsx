@@ -23,11 +23,12 @@ import { StatPill } from "@/components/ui/StatPill";
 import { Tabs } from "@/components/ui/Tabs";
 import { apiFetch } from "@/lib/api";
 import { BettingLine, Game, GamePlayerStats, GameTeamStats, Lineup, Play } from "@/lib/types";
-import { dec, formatDate, formatTimeWithZone, moneyline, pct, sign } from "@/lib/utils";
+import { dec, formatDate, formatTimeWithZone, moneyline, normalizePct, pct, sign } from "@/lib/utils";
 
 const SEASON = 2026;
 
 type TabKey = "Overview" | "Box Score" | "Lineups" | "Betting";
+type LineupSortKey = "minutes" | "offRating" | "defRating" | "netRating" | "points" | "possessions";
 
 function StatusBadge({
   label,
@@ -81,6 +82,7 @@ export default function GameDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [troubleshooting, setTroubleshooting] = useState<string[]>([]);
+  const [lineupSort, setLineupSort] = useState<LineupSortKey>("minutes");
 
   useEffect(() => {
     if (!Number.isFinite(gameId)) {
@@ -176,11 +178,21 @@ export default function GameDetailPage() {
       setGame(gameMatch);
 
       const resolvedSeason = gameMatch.season ?? SEASON;
+      const awayTeam = gameMatch.awayTeam;
+      const homeTeam = gameMatch.homeTeam;
+
+      const fetchByTeam = async <T extends { gameId: number }>(endpoint: string) => {
+        const [awayRows, homeRows] = await Promise.all([
+          apiFetch<T[]>(endpoint, { season: resolvedSeason, team: awayTeam }),
+          apiFetch<T[]>(endpoint, { season: resolvedSeason, team: homeTeam }),
+        ]);
+        return [...awayRows, ...homeRows];
+      };
 
       const results = await Promise.allSettled([
-        apiFetch<GameTeamStats[]>("/games/teams", { season: resolvedSeason, gameId }),
-        apiFetch<GamePlayerStats[]>("/games/players", { season: resolvedSeason, gameId }),
-        apiFetch<BettingLine[]>("/lines", { season: resolvedSeason, gameId }),
+        fetchByTeam<GameTeamStats>("/games/teams"),
+        fetchByTeam<GamePlayerStats>("/games/players"),
+        fetchByTeam<BettingLine>("/lines"),
         apiFetch<Lineup[]>(`/lineups/game/${gameId}`),
         apiFetch<Play[]>("/plays", { season: resolvedSeason, gameId }),
       ]);
@@ -255,8 +267,18 @@ export default function GameDetailPage() {
   );
 
   const sortedLineups = useMemo(
-    () => [...lineups].sort((a, b) => b.totalSeconds - a.totalSeconds).slice(0, 15),
-    [lineups]
+    () =>
+      [...lineups]
+        .sort((a, b) => {
+          if (lineupSort === "minutes") return b.totalSeconds - a.totalSeconds;
+          if (lineupSort === "offRating") return b.offenseRating - a.offenseRating;
+          if (lineupSort === "defRating") return a.defenseRating - b.defenseRating;
+          if (lineupSort === "netRating") return b.netRating - a.netRating;
+          if (lineupSort === "points") return b.teamStats.points - a.teamStats.points;
+          return b.teamStats.possessions - a.teamStats.possessions;
+        })
+        .slice(0, 15),
+    [lineupSort, lineups]
   );
 
   const shootingGraphData = useMemo(() => {
@@ -265,18 +287,18 @@ export default function GameDetailPage() {
     return [
       {
         metric: "FG%",
-        away: Number((awayTeamStats.teamStats.fieldGoals.pct * 100).toFixed(1)),
-        home: Number((homeTeamStats.teamStats.fieldGoals.pct * 100).toFixed(1)),
+        away: Number((normalizePct(awayTeamStats.teamStats.fieldGoals.pct) ?? 0).toFixed(1)),
+        home: Number((normalizePct(homeTeamStats.teamStats.fieldGoals.pct) ?? 0).toFixed(1)),
       },
       {
         metric: "3PT%",
-        away: Number((awayTeamStats.teamStats.threePointFieldGoals.pct * 100).toFixed(1)),
-        home: Number((homeTeamStats.teamStats.threePointFieldGoals.pct * 100).toFixed(1)),
+        away: Number((normalizePct(awayTeamStats.teamStats.threePointFieldGoals.pct) ?? 0).toFixed(1)),
+        home: Number((normalizePct(homeTeamStats.teamStats.threePointFieldGoals.pct) ?? 0).toFixed(1)),
       },
       {
         metric: "FT%",
-        away: Number((awayTeamStats.teamStats.freeThrows.pct * 100).toFixed(1)),
-        home: Number((homeTeamStats.teamStats.freeThrows.pct * 100).toFixed(1)),
+        away: Number((normalizePct(awayTeamStats.teamStats.freeThrows.pct) ?? 0).toFixed(1)),
+        home: Number((normalizePct(homeTeamStats.teamStats.freeThrows.pct) ?? 0).toFixed(1)),
       },
     ];
   }, [awayTeamStats, homeTeamStats]);
@@ -636,6 +658,30 @@ export default function GameDetailPage() {
 
       {tab === "Lineups" && (
         <section className="grid gap-3">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/5 bg-zinc-900/80 p-3 text-sm">
+            <span className="text-zinc-400">Sort by:</span>
+            {[
+              ["minutes", "Minutes"],
+              ["offRating", "Off Rtg"],
+              ["defRating", "Def Rtg"],
+              ["netRating", "Net"],
+              ["points", "Points"],
+              ["possessions", "Poss"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setLineupSort(value as LineupSortKey)}
+                className={`rounded-md border px-2 py-1 ${
+                  lineupSort === value
+                    ? "border-amber-400 bg-amber-400/20 text-amber-300"
+                    : "border-white/10 bg-zinc-800 text-zinc-300 hover:border-white/20"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {sortedLineups.map((lineup) => (
             <LineupCard
               key={`${lineup.idHash}-${lineup.teamId}`}
