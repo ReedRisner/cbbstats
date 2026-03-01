@@ -5,7 +5,6 @@ import { useEffect, useMemo, useState } from "react";
 import { GameCard } from "@/components/GameCard";
 import { ErrorMsg } from "@/components/ui/ErrorMsg";
 import { Loader } from "@/components/ui/Loader";
-import { Tabs } from "@/components/ui/Tabs";
 import { apiFetch } from "@/lib/api";
 import { AdjustedRating, BettingLine, Game, Ranking } from "@/lib/types";
 import { dec, formatDate } from "@/lib/utils";
@@ -24,7 +23,8 @@ export default function HomePage() {
   const [lines, setLines] = useState<BettingLine[]>([]);
   const [rankings, setRankings] = useState<Ranking[]>([]);
   const [ratings, setRatings] = useState<AdjustedRating[]>([]);
-  const [dateMode, setDateMode] = useState<"Today" | "Recent">("Today");
+  const [gameFilter, setGameFilter] = useState<"top25" | "all" | "conference">("top25");
+  const [selectedConference, setSelectedConference] = useState<string>("ALL");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,16 +90,6 @@ export default function HomePage() {
   const linesMap = useMemo(() => new Map(lines.map((line) => [line.gameId, line])), [lines]);
   const ratingsMap = useMemo(() => new Map(ratings.map((rating) => [rating.teamId, rating])), [ratings]);
 
-  const displayedGames = useMemo(() => {
-    if (dateMode === "Today") return games;
-    return games
-      .filter((game) => {
-        const status = game.status.toUpperCase();
-        return status.includes("FINAL") || status.includes("LIVE") || status.includes("IN PROGRESS");
-      })
-      .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
-  }, [dateMode, games]);
-
   const apTop25 = useMemo(() => {
     const apRankings = rankings.filter((row) => row.pollType.toUpperCase().includes("AP"));
     const latestWeek = apRankings.reduce((maxWeek, row) => Math.max(maxWeek, row.week), 0);
@@ -110,8 +100,34 @@ export default function HomePage() {
       .slice(0, 25);
   }, [rankings]);
 
+  const apTop25TeamIds = useMemo(() => new Set(apTop25.map((row) => row.teamId)), [apTop25]);
+
+  const conferenceOptions = useMemo(() => {
+    const conferenceSet = new Set<string>();
+
+    games.forEach((game) => {
+      if (game.homeConference) conferenceSet.add(game.homeConference);
+      if (game.awayConference) conferenceSet.add(game.awayConference);
+    });
+
+    return Array.from(conferenceSet).sort((a, b) => a.localeCompare(b));
+  }, [games]);
+
+  const displayedGames = useMemo(() => {
+    if (gameFilter === "all") return games;
+
+    if (gameFilter === "conference") {
+      if (selectedConference === "ALL") return games;
+      return games.filter(
+        (game) => game.homeConference === selectedConference || game.awayConference === selectedConference
+      );
+    }
+
+    return games.filter((game) => apTop25TeamIds.has(game.homeTeamId) || apTop25TeamIds.has(game.awayTeamId));
+  }, [apTop25TeamIds, gameFilter, games, selectedConference]);
+
   const topEfficiency = useMemo(
-    () => ratings.slice().sort((a, b) => a.rankings.net - b.rankings.net).slice(0, 20),
+    () => ratings.slice().sort((a, b) => a.rankings.net - b.rankings.net).slice(0, 25),
     [ratings]
   );
 
@@ -123,12 +139,59 @@ export default function HomePage() {
       </section>
 
       <section className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="font-heading text-2xl text-zinc-100">Today&apos;s Games</h2>
             <p className="font-mono text-xs text-zinc-400">{today.display}</p>
           </div>
-          <Tabs tabs={["Today", "Recent"]} active={dateMode} onChange={(tab) => setDateMode(tab as "Today" | "Recent")} />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setGameFilter("top25")}
+              className={`rounded-md border px-3 py-1.5 text-sm transition ${
+                gameFilter === "top25"
+                  ? "border-amber-400 bg-amber-400/20 text-amber-300"
+                  : "border-white/5 bg-zinc-900/80 text-zinc-300 hover:border-white/20"
+              }`}
+            >
+              Top 25 Games
+            </button>
+            <button
+              type="button"
+              onClick={() => setGameFilter("all")}
+              className={`rounded-md border px-3 py-1.5 text-sm transition ${
+                gameFilter === "all"
+                  ? "border-amber-400 bg-amber-400/20 text-amber-300"
+                  : "border-white/5 bg-zinc-900/80 text-zinc-300 hover:border-white/20"
+              }`}
+            >
+              All Games
+            </button>
+            <button
+              type="button"
+              onClick={() => setGameFilter("conference")}
+              className={`rounded-md border px-3 py-1.5 text-sm transition ${
+                gameFilter === "conference"
+                  ? "border-amber-400 bg-amber-400/20 text-amber-300"
+                  : "border-white/5 bg-zinc-900/80 text-zinc-300 hover:border-white/20"
+              }`}
+            >
+              Conference
+            </button>
+            <select
+              value={selectedConference}
+              onChange={(event) => setSelectedConference(event.target.value)}
+              className="rounded-md border border-white/10 bg-zinc-900 px-3 py-1.5 text-sm text-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={gameFilter !== "conference"}
+            >
+              <option value="ALL">All Conferences</option>
+              {conferenceOptions.map((conference) => (
+                <option key={conference} value={conference}>
+                  {conference}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {loading && <Loader />}
@@ -176,7 +239,7 @@ export default function HomePage() {
         </div>
 
         <div className="rounded-xl border border-white/5 bg-zinc-900/80 p-4">
-          <h3 className="font-heading text-xl text-amber-400">Top 20 Adjusted Efficiency</h3>
+          <h3 className="font-heading text-xl text-amber-400">Top 25 Adjusted Efficiency</h3>
           <div className="mt-3 space-y-1">
             {topEfficiency.map((row) => (
               <Link
