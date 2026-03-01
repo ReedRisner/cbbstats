@@ -44,7 +44,11 @@ export default function HomePage() {
             startDateRange: today,
             endDateRange: today,
           }),
-          apiFetch<BettingLine[]>("/lines", { season: SEASON }),
+          apiFetch<BettingLine[]>("/lines", {
+            season: SEASON,
+            startDateRange: today,
+            endDateRange: today,
+          }),
           apiFetch<Ranking[]>("/rankings", { season: SEASON }),
           apiFetch<AdjustedRating[]>("/ratings/adjusted", { season: SEASON }),
         ]);
@@ -91,8 +95,8 @@ export default function HomePage() {
     const latestWeek = apRankings.reduce((maxWeek, row) => Math.max(maxWeek, row.week), 0);
 
     return apRankings
-      .filter((row) => row.week === latestWeek)
-      .sort((a, b) => a.ranking - b.ranking)
+      .filter((row) => row.week === latestWeek && row.ranking != null)
+      .sort((a, b) => (a.ranking ?? Number.MAX_SAFE_INTEGER) - (b.ranking ?? Number.MAX_SAFE_INTEGER))
       .slice(0, 25);
   }, [rankings]);
 
