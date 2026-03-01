@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { BettingLine, Game, AdjustedRating } from "@/lib/types";
-import { dec, formatTime, moneyline, sign } from "@/lib/utils";
+import { dec, formatTimeWithZone, moneyline, sign } from "@/lib/utils";
 
 interface GameCardProps {
   game: Game;
@@ -75,7 +75,7 @@ export function GameCard({ game, line, homeRating, awayRating, homeApRank, awayA
           {isFinal && <StatusBadge label="Final" tone="green" />}
           {isLive && <StatusBadge label="Live" tone="amber" pulse />}
         </div>
-        <p className="font-mono text-xs text-zinc-400">{formatTime(game.startDate)}</p>
+        <p className="font-mono text-xs text-zinc-400">{formatTimeWithZone(game.startDate)}</p>
       </div>
 
       <div className="grid gap-2">

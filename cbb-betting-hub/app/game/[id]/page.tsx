@@ -23,7 +23,7 @@ import { StatPill } from "@/components/ui/StatPill";
 import { Tabs } from "@/components/ui/Tabs";
 import { apiFetch } from "@/lib/api";
 import { BettingLine, Game, GamePlayerStats, GameTeamStats, Lineup, Play } from "@/lib/types";
-import { dec, formatDate, formatTime, moneyline, pct, sign } from "@/lib/utils";
+import { dec, formatDate, formatTimeWithZone, moneyline, pct, sign } from "@/lib/utils";
 
 const SEASON = 2026;
 
@@ -76,6 +76,7 @@ export default function GameDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [troubleshooting, setTroubleshooting] = useState<string[]>([]);
 
   useEffect(() => {
     if (!Number.isFinite(gameId)) {
@@ -90,22 +91,31 @@ export default function GameDetailPage() {
       setLoading(true);
       setError(null);
       setWarnings([]);
+      setTroubleshooting([]);
 
-      const gameLookups = await Promise.allSettled([
-        apiFetch<Game[]>("/games", { season: SEASON, id: gameId }),
-        apiFetch<Game[]>("/games", { id: gameId }),
-        apiFetch<Game[]>("/games", { season: SEASON - 1, id: gameId }),
-      ]);
+      const gameLookupConfigs = [
+        { label: `GET /games?season=${SEASON}&id=${gameId}`, request: apiFetch<Game[]>("/games", { season: SEASON, id: gameId }) },
+        { label: `GET /games?id=${gameId}`, request: apiFetch<Game[]>("/games", { id: gameId }) },
+        { label: `GET /games?season=${SEASON - 1}&id=${gameId}`, request: apiFetch<Game[]>("/games", { season: SEASON - 1, id: gameId }) },
+        { label: `GET /games?season=${SEASON - 2}&id=${gameId}`, request: apiFetch<Game[]>("/games", { season: SEASON - 2, id: gameId }) },
+      ];
+
+      const gameLookups = await Promise.allSettled(gameLookupConfigs.map((entry) => entry.request));
 
       if (cancelled) return;
 
       const nextWarnings: string[] = [];
+      const lookupDebug: string[] = [];
 
       let gameMatch: Game | null = null;
-      for (const lookup of gameLookups) {
+      for (const [index, lookup] of gameLookups.entries()) {
+        const label = gameLookupConfigs[index]?.label ?? `lookup-${index}`;
         if (lookup.status === "fulfilled") {
+          lookupDebug.push(`${label} → ${lookup.value.length} results`);
           gameMatch = lookup.value.find((row) => row.id === gameId) ?? gameMatch;
           if (gameMatch) break;
+        } else {
+          lookupDebug.push(`${label} → failed: ${String(lookup.reason)}`);
         }
       }
 
@@ -117,6 +127,7 @@ export default function GameDetailPage() {
         setLineups([]);
         setPlays([]);
         setError("Unable to load game details");
+        setTroubleshooting(lookupDebug);
         setLoading(false);
         return;
       }
@@ -235,7 +246,25 @@ export default function GameDetailPage() {
   );
 
   if (loading) return <Loader />;
-  if (error) return <ErrorMsg message={error} />;
+  if (error) {
+    return (
+      <div className="space-y-4">
+        <ErrorMsg message={error} />
+        {troubleshooting.length > 0 && (
+          <section className="rounded-xl border border-red-400/30 bg-red-500/10 p-4">
+            <h3 className="font-semibold text-red-300">Troubleshooting</h3>
+            <p className="mt-1 text-xs text-red-200">Game could not be resolved by ID with the attempted lookups:</p>
+            <div className="mt-2 space-y-1 text-xs text-zinc-200">
+              {troubleshooting.map((item) => (
+                <p key={item}>• {item}</p>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-zinc-300">Try opening the game from Calendar for that date, or verify the game ID exists in the API.</p>
+          </section>
+        )}
+      </div>
+    );
+  }
   if (!game) return <ErrorMsg message="Game not found" />;
 
   const isFinal = game.status.toUpperCase().includes("FINAL");
@@ -270,7 +299,7 @@ export default function GameDetailPage() {
         </div>
 
         <p className="font-mono text-xs text-zinc-400">
-          {formatDate(game.startDate)} · {formatTime(game.startDate)}
+          {formatDate(game.startDate)} · {formatTimeWithZone(game.startDate)}
         </p>
 
         <div className="mt-3 grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-center">
@@ -346,6 +375,19 @@ export default function GameDetailPage() {
           {warnings.map((warning) => (
             <p key={warning}>• {warning}</p>
           ))}
+        </section>
+      )}
+
+      {troubleshooting.length > 0 && (
+        <section className="rounded-xl border border-red-400/30 bg-red-500/10 p-4">
+          <h3 className="font-semibold text-red-300">Troubleshooting</h3>
+          <p className="mt-1 text-xs text-red-200">Game could not be resolved by ID with the attempted lookups:</p>
+          <div className="mt-2 space-y-1 text-xs text-zinc-200">
+            {troubleshooting.map((item) => (
+              <p key={item}>• {item}</p>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-zinc-300">Try opening the game from the Calendar page for that date, then re-open details from the card.</p>
         </section>
       )}
 

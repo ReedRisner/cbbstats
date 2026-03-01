@@ -8,6 +8,20 @@ export function formatTime(d: string | null): string {
   return new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
+export function formatTimeWithZone(d: string | null): string {
+  if (!d) return "TBD";
+  const dt = new Date(d);
+  const formatInZone = (timeZone: string) =>
+    new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone,
+    }).format(dt);
+
+  return `${formatInZone("America/New_York")} ET / ${formatInZone("America/Chicago")} CT / ${formatInZone("America/Los_Angeles")} PT`;
+}
+
 export function pct(v: number | null | undefined): string {
   return v != null ? `${(v * 100).toFixed(1)}%` : "—";
 }
