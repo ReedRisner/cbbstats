@@ -3,23 +3,12 @@
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { BettingLines } from "@/components/BettingLines";
 import { BoxScore } from "@/components/BoxScore";
 import { LineupCard } from "@/components/LineupCard";
 import { ErrorMsg } from "@/components/ui/ErrorMsg";
 import { FourFactorsBar } from "@/components/ui/FourFactorsBar";
 import { Loader } from "@/components/ui/Loader";
-import { StatPill } from "@/components/ui/StatPill";
 import { Tabs } from "@/components/ui/Tabs";
 import { apiFetch } from "@/lib/api";
 import { BettingLine, Game, GamePlayerStats, GameTeamStats, Lineup, Play } from "@/lib/types";
@@ -29,6 +18,23 @@ const SEASON = 2026;
 
 type TabKey = "Overview" | "Box Score" | "Lineups" | "Betting";
 type LineupSortKey = "minutes" | "offRating" | "defRating" | "netRating" | "points" | "possessions";
+
+type TeamComparisonRow = {
+  label: string;
+  away: number;
+  home: number;
+  lowerIsBetter?: boolean;
+  percent?: boolean;
+  decimals?: number;
+};
+
+type ShotZoneSummary = {
+  zone: string;
+  awayMade: number;
+  awayAtt: number;
+  homeMade: number;
+  homeAtt: number;
+};
 
 function StatusBadge({
   label,
@@ -194,7 +200,7 @@ export default function GameDetailPage() {
         fetchByTeam<GamePlayerStats>("/games/players"),
         fetchByTeam<BettingLine>("/lines"),
         apiFetch<Lineup[]>(`/lineups/game/${gameId}`),
-        apiFetch<Play[]>("/plays", { season: resolvedSeason, gameId }),
+        apiFetch<Play[]>(`/plays/game/${gameId}`),
       ]);
 
       if (cancelled) return;
@@ -281,27 +287,58 @@ export default function GameDetailPage() {
     [lineupSort, lineups]
   );
 
-  const shootingGraphData = useMemo(() => {
+  const teamComparisonRows = useMemo<TeamComparisonRow[]>(() => {
     if (!awayTeamStats || !homeTeamStats) return [];
 
     return [
-      {
-        metric: "FG%",
-        away: Number((normalizePct(awayTeamStats.teamStats.fieldGoals.pct) ?? 0).toFixed(1)),
-        home: Number((normalizePct(homeTeamStats.teamStats.fieldGoals.pct) ?? 0).toFixed(1)),
-      },
-      {
-        metric: "3PT%",
-        away: Number((normalizePct(awayTeamStats.teamStats.threePointFieldGoals.pct) ?? 0).toFixed(1)),
-        home: Number((normalizePct(homeTeamStats.teamStats.threePointFieldGoals.pct) ?? 0).toFixed(1)),
-      },
-      {
-        metric: "FT%",
-        away: Number((normalizePct(awayTeamStats.teamStats.freeThrows.pct) ?? 0).toFixed(1)),
-        home: Number((normalizePct(homeTeamStats.teamStats.freeThrows.pct) ?? 0).toFixed(1)),
-      },
+      { label: "Points", away: awayTeamStats.teamStats.points.total, home: homeTeamStats.teamStats.points.total },
+      { label: "FG%", away: awayTeamStats.teamStats.fieldGoals.pct, home: homeTeamStats.teamStats.fieldGoals.pct, percent: true },
+      { label: "3PT%", away: awayTeamStats.teamStats.threePointFieldGoals.pct, home: homeTeamStats.teamStats.threePointFieldGoals.pct, percent: true },
+      { label: "FT%", away: awayTeamStats.teamStats.freeThrows.pct, home: homeTeamStats.teamStats.freeThrows.pct, percent: true },
+      { label: "Rebounds", away: awayTeamStats.teamStats.rebounds.total, home: homeTeamStats.teamStats.rebounds.total },
+      { label: "Assists", away: awayTeamStats.teamStats.assists, home: homeTeamStats.teamStats.assists },
+      { label: "Steals", away: awayTeamStats.teamStats.steals, home: homeTeamStats.teamStats.steals },
+      { label: "Blocks", away: awayTeamStats.teamStats.blocks, home: homeTeamStats.teamStats.blocks },
+      { label: "Turnovers", away: awayTeamStats.teamStats.turnovers.total, home: homeTeamStats.teamStats.turnovers.total, lowerIsBetter: true },
+      { label: "Pace", away: awayTeamStats.pace, home: homeTeamStats.pace, decimals: 1 },
+      { label: "Off Rating", away: awayTeamStats.teamStats.rating, home: homeTeamStats.teamStats.rating, decimals: 1 },
+      { label: "True Shooting%", away: awayTeamStats.teamStats.trueShooting, home: homeTeamStats.teamStats.trueShooting, percent: true },
     ];
   }, [awayTeamStats, homeTeamStats]);
+
+  const shotZoneSummary = useMemo<ShotZoneSummary[]>(() => {
+    const zoneBuckets = ["Rim", "Paint", "Mid-Range", "Corner 3", "Above-the-Break 3", "Free Throw", "Other"];
+    const toZone = (range: string | undefined) => {
+      const text = (range ?? "").toLowerCase();
+      if (!text) return "Other";
+      if (text.includes("free throw")) return "Free Throw";
+      if (text.includes("corner") && text.includes("3")) return "Corner 3";
+      if (text.includes("3") || text.includes("three")) return "Above-the-Break 3";
+      if (text.includes("rim") || text.includes("layup") || text.includes("dunk") || text.includes("tip")) return "Rim";
+      if (text.includes("paint")) return "Paint";
+      if (text.includes("mid" ) || text.includes("jumper") || text.includes("two")) return "Mid-Range";
+      return "Other";
+    };
+
+    const summary = new Map<string, ShotZoneSummary>();
+    zoneBuckets.forEach((zone) => summary.set(zone, { zone, awayMade: 0, awayAtt: 0, homeMade: 0, homeAtt: 0 }));
+
+    plays.forEach((play) => {
+      if (!play.shootingPlay || !play.shotInfo) return;
+      const zone = toZone(play.shotInfo.range);
+      const bucket = summary.get(zone) ?? { zone, awayMade: 0, awayAtt: 0, homeMade: 0, homeAtt: 0 };
+      if (play.isHomeTeam) {
+        bucket.homeAtt += 1;
+        if (play.shotInfo.made) bucket.homeMade += 1;
+      } else {
+        bucket.awayAtt += 1;
+        if (play.shotInfo.made) bucket.awayMade += 1;
+      }
+      summary.set(zone, bucket);
+    });
+
+    return zoneBuckets.map((zone) => summary.get(zone)!).filter((zone) => zone.awayAtt + zone.homeAtt > 0);
+  }, [plays]);
 
   const recentPlays = useMemo(
     () => [...plays].sort((a, b) => a.period - b.period || b.secondsRemaining - a.secondsRemaining).slice(0, 60),
@@ -505,66 +542,62 @@ export default function GameDetailPage() {
 
           {awayTeamStats && homeTeamStats && (
             <>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <StatPill
-                  label={`${game.awayTeam} FG%`}
-                  value={pct(awayTeamStats.teamStats.fieldGoals.pct)}
-                />
-                <StatPill
-                  label={`${game.homeTeam} FG%`}
-                  value={pct(homeTeamStats.teamStats.fieldGoals.pct)}
-                  accent
-                />
-                <StatPill
-                  label={`${game.awayTeam} 3PT%`}
-                  value={pct(awayTeamStats.teamStats.threePointFieldGoals.pct)}
-                />
-                <StatPill
-                  label={`${game.homeTeam} 3PT%`}
-                  value={pct(homeTeamStats.teamStats.threePointFieldGoals.pct)}
-                  accent
-                />
-                <StatPill
-                  label="Rebounds"
-                  value={`${awayTeamStats.teamStats.rebounds.total} - ${homeTeamStats.teamStats.rebounds.total}`}
-                />
-                <StatPill
-                  label="Turnovers"
-                  value={`${awayTeamStats.teamStats.turnovers.total} - ${homeTeamStats.teamStats.turnovers.total}`}
-                />
-                <StatPill
-                  label="Assists"
-                  value={`${awayTeamStats.teamStats.assists} - ${homeTeamStats.teamStats.assists}`}
-                />
-                <StatPill
-                  label="Steals"
-                  value={`${awayTeamStats.teamStats.steals} - ${homeTeamStats.teamStats.steals}`}
-                />
-                <StatPill
-                  label="Blocks"
-                  value={`${awayTeamStats.teamStats.blocks} - ${homeTeamStats.teamStats.blocks}`}
-                />
-                <StatPill
-                  label="Pace"
-                  value={`${dec(awayTeamStats.pace, 1)} - ${dec(homeTeamStats.pace, 1)}`}
-                />
+              <div className="overflow-x-auto rounded-xl border border-white/5 bg-zinc-900/80 p-4">
+                <h3 className="mb-3 font-heading text-xl text-amber-400">Team Stats Comparison</h3>
+                <table className="min-w-[720px] w-full text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase tracking-wide text-zinc-400">
+                      <th className="px-2 py-2 text-left">Stat</th>
+                      <th className="px-2 py-2 text-right">{game.awayTeam}</th>
+                      <th className="px-2 py-2 text-right">{game.homeTeam}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teamComparisonRows.map((row) => {
+                      const awayDisplay = row.percent ? pct(row.away) : dec(row.away, row.decimals ?? 0);
+                      const homeDisplay = row.percent ? pct(row.home) : dec(row.home, row.decimals ?? 0);
+                      const awayBetter = row.lowerIsBetter ? row.away < row.home : row.away > row.home;
+                      const homeBetter = row.lowerIsBetter ? row.home < row.away : row.home > row.away;
+
+                      return (
+                        <tr key={row.label} className="border-t border-white/10">
+                          <td className="px-2 py-2 text-zinc-300">{row.label}</td>
+                          <td className={`px-2 py-2 text-right font-mono ${awayBetter ? "text-green-400" : "text-zinc-100"}`}>
+                            {awayDisplay}
+                          </td>
+                          <td className={`px-2 py-2 text-right font-mono ${homeBetter ? "text-green-400" : "text-zinc-100"}`}>
+                            {homeDisplay}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
 
               <div className="rounded-xl border border-white/5 bg-zinc-900/80 p-4">
-                <h3 className="mb-3 font-heading text-xl text-amber-400">Shooting Graph</h3>
-                <div className="h-72 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={shootingGraphData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#3f3f46" />
-                      <XAxis dataKey="metric" stroke="#a1a1aa" />
-                      <YAxis stroke="#a1a1aa" domain={[0, 100]} />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="away" name={game.awayTeam} fill="#a1a1aa" />
-                      <Bar dataKey="home" name={game.homeTeam} fill="#f59e0b" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                <h3 className="mb-3 font-heading text-xl text-amber-400">Shot Zones (Made/Attempted)</h3>
+                {shotZoneSummary.length === 0 ? (
+                  <p className="text-sm text-zinc-400">No shot zone data available.</p>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {shotZoneSummary.map((zone) => (
+                      <div key={zone.zone} className="rounded-lg border border-white/10 bg-zinc-800/50 p-3">
+                        <p className="text-sm font-semibold text-zinc-100">{zone.zone}</p>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <p className="text-zinc-400">{game.awayTeam}</p>
+                            <p className="font-mono text-zinc-100">{zone.awayMade}/{zone.awayAtt} ({zone.awayAtt ? ((zone.awayMade / zone.awayAtt) * 100).toFixed(1) : "0.0"}%)</p>
+                          </div>
+                          <div>
+                            <p className="text-zinc-400">{game.homeTeam}</p>
+                            <p className="font-mono text-zinc-100">{zone.homeMade}/{zone.homeAtt} ({zone.homeAtt ? ((zone.homeMade / zone.homeAtt) * 100).toFixed(1) : "0.0"}%)</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <FourFactorsBar
