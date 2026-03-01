@@ -393,8 +393,11 @@ export default function GameDetailPage() {
     game.status.toUpperCase().includes("LIVE") ||
     game.status.toUpperCase().includes("IN PROGRESS");
 
+  const homePeriodPoints = game.homePeriodPoints ?? [];
+  const awayPeriodPoints = game.awayPeriodPoints ?? [];
+
   const periods = Array.from(
-    { length: Math.max(game.homePeriodPoints.length, game.awayPeriodPoints.length) },
+    { length: Math.max(homePeriodPoints.length, awayPeriodPoints.length) },
     (_, i) => i
   );
 
@@ -547,7 +550,7 @@ export default function GameDetailPage() {
                   <td className="px-2 py-2 text-zinc-100">{game.awayTeam}</td>
                   {periods.map((i) => (
                     <td key={i} className="px-2 py-2 text-right font-mono">
-                      {game.awayPeriodPoints[i] ?? 0}
+                      {awayPeriodPoints[i] ?? 0}
                     </td>
                   ))}
                   <td className="px-2 py-2 text-right font-mono text-zinc-100">
@@ -558,7 +561,7 @@ export default function GameDetailPage() {
                   <td className="px-2 py-2 text-zinc-100">{game.homeTeam}</td>
                   {periods.map((i) => (
                     <td key={i} className="px-2 py-2 text-right font-mono">
-                      {game.homePeriodPoints[i] ?? 0}
+                      {homePeriodPoints[i] ?? 0}
                     </td>
                   ))}
                   <td className="px-2 py-2 text-right font-mono text-zinc-100">
