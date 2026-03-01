@@ -35,6 +35,8 @@ type ShotZoneSummary = {
   homeAtt: number;
 };
 
+type PlayFilter = "All" | "1st Half" | "2nd Half" | "OT";
+
 function StatusBadge({
   label,
   tone = "default",
@@ -88,6 +90,7 @@ export default function GameDetailPage() {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [troubleshooting, setTroubleshooting] = useState<string[]>([]);
   const [lineupSort, setLineupSort] = useState<LineupSortKey>("minutes");
+  const [playFilter, setPlayFilter] = useState<PlayFilter>("All");
 
   useEffect(() => {
     if (!Number.isFinite(gameId)) {
@@ -180,11 +183,27 @@ export default function GameDetailPage() {
         return;
       }
 
-      setGame(gameMatch);
+      const enrichedGameCandidate = gameLookups
+        .filter((entry): entry is PromiseFulfilledResult<Game[]> => entry.status === "fulfilled")
+        .flatMap((entry) => entry.value)
+        .find((row) => row.id === gameId);
 
-      const resolvedSeason = gameMatch.season ?? SEASON;
-      const awayTeam = gameMatch.awayTeam;
-      const homeTeam = gameMatch.homeTeam;
+      const resolvedGame = enrichedGameCandidate
+        ? {
+            ...gameMatch,
+            awayTeamEloStart: enrichedGameCandidate.awayTeamEloStart ?? gameMatch.awayTeamEloStart,
+            awayTeamEloEnd: enrichedGameCandidate.awayTeamEloEnd ?? gameMatch.awayTeamEloEnd,
+            homeTeamEloStart: enrichedGameCandidate.homeTeamEloStart ?? gameMatch.homeTeamEloStart,
+            homeTeamEloEnd: enrichedGameCandidate.homeTeamEloEnd ?? gameMatch.homeTeamEloEnd,
+            excitement: enrichedGameCandidate.excitement ?? gameMatch.excitement,
+          }
+        : gameMatch;
+
+      setGame(resolvedGame);
+
+      const resolvedSeason = resolvedGame.season ?? SEASON;
+      const awayTeam = resolvedGame.awayTeam;
+      const homeTeam = resolvedGame.homeTeam;
 
       const fetchByTeam = async <T extends { gameId: number }>(endpoint: string) => {
         const [awayRows, homeRows] = await Promise.all([
@@ -339,10 +358,13 @@ export default function GameDetailPage() {
     return zoneBuckets.map((zone) => summary.get(zone)!).filter((zone) => zone.awayAtt + zone.homeAtt > 0);
   }, [plays]);
 
-  const recentPlays = useMemo(
-    () => [...plays].sort((a, b) => a.period - b.period || b.secondsRemaining - a.secondsRemaining).slice(0, 60),
-    [plays]
-  );
+  const filteredPlays = useMemo(() => {
+    const sorted = [...plays].sort((a, b) => a.period - b.period || b.secondsRemaining - a.secondsRemaining);
+    if (playFilter === "1st Half") return sorted.filter((play) => play.period === 1);
+    if (playFilter === "2nd Half") return sorted.filter((play) => play.period === 2);
+    if (playFilter === "OT") return sorted.filter((play) => play.period > 2);
+    return sorted;
+  }, [playFilter, plays]);
 
   if (loading) return <Loader />;
   if (error) {
@@ -385,7 +407,7 @@ export default function GameDetailPage() {
   const homeEloDelta = game.homeTeamEloStart != null && game.homeTeamEloEnd != null
     ? game.homeTeamEloEnd - game.homeTeamEloStart
     : null;
-  const excitementIndex = game.excitement;
+  const excitementIndex = game.excitement ?? (game.homePoints != null && game.awayPoints != null ? Math.max(0, 100 - Math.abs(game.homePoints - game.awayPoints)) : null);
 
   return (
     <div className="space-y-6">
@@ -618,10 +640,43 @@ export default function GameDetailPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr className="border-t border-white/10"><td className="px-2 py-2 text-zinc-300">eFG%</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(awayTeamStats.teamStats.fourFactors.effectiveFieldGoalPct), 1)}</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(homeTeamStats.teamStats.fourFactors.effectiveFieldGoalPct), 1)}</td></tr>
-                    <tr className="border-t border-white/10"><td className="px-2 py-2 text-zinc-300">TO Ratio</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(awayTeamStats.teamStats.fourFactors.turnoverRatio), 1)}</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(homeTeamStats.teamStats.fourFactors.turnoverRatio), 1)}</td></tr>
-                    <tr className="border-t border-white/10"><td className="px-2 py-2 text-zinc-300">OREB%</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(awayTeamStats.teamStats.fourFactors.offensiveReboundPct), 1)}</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(homeTeamStats.teamStats.fourFactors.offensiveReboundPct), 1)}</td></tr>
-                    <tr className="border-t border-white/10"><td className="px-2 py-2 text-zinc-300">FT Rate</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(awayTeamStats.teamStats.fourFactors.freeThrowRate), 1)}</td><td className="px-2 py-2 text-right font-mono">{dec(normalizePct(homeTeamStats.teamStats.fourFactors.freeThrowRate), 1)}</td></tr>
+                    {[
+                      {
+                        label: "eFG%",
+                        away: normalizePct(awayTeamStats.teamStats.fourFactors.effectiveFieldGoalPct) ?? 0,
+                        home: normalizePct(homeTeamStats.teamStats.fourFactors.effectiveFieldGoalPct) ?? 0,
+                        lowerIsBetter: false,
+                      },
+                      {
+                        label: "TO Ratio",
+                        away: normalizePct(awayTeamStats.teamStats.fourFactors.turnoverRatio) ?? 0,
+                        home: normalizePct(homeTeamStats.teamStats.fourFactors.turnoverRatio) ?? 0,
+                        lowerIsBetter: true,
+                      },
+                      {
+                        label: "OREB%",
+                        away: normalizePct(awayTeamStats.teamStats.fourFactors.offensiveReboundPct) ?? 0,
+                        home: normalizePct(homeTeamStats.teamStats.fourFactors.offensiveReboundPct) ?? 0,
+                        lowerIsBetter: false,
+                      },
+                      {
+                        label: "FT Rate",
+                        away: normalizePct(awayTeamStats.teamStats.fourFactors.freeThrowRate) ?? 0,
+                        home: normalizePct(homeTeamStats.teamStats.fourFactors.freeThrowRate) ?? 0,
+                        lowerIsBetter: false,
+                      },
+                    ].map((factor) => {
+                      const awayBetter = factor.lowerIsBetter ? factor.away < factor.home : factor.away > factor.home;
+                      const homeBetter = factor.lowerIsBetter ? factor.home < factor.away : factor.home > factor.away;
+
+                      return (
+                        <tr key={factor.label} className="border-t border-white/10">
+                          <td className="px-2 py-2 text-zinc-300">{factor.label}</td>
+                          <td className={`px-2 py-2 text-right font-mono ${awayBetter ? "text-green-400" : "text-zinc-100"}`}>{dec(factor.away, 1)}</td>
+                          <td className={`px-2 py-2 text-right font-mono ${homeBetter ? "text-green-400" : "text-zinc-100"}`}>{dec(factor.home, 1)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -669,11 +724,23 @@ export default function GameDetailPage() {
       {tab === "Play by Play" && (
         <section className="rounded-xl border border-white/5 bg-zinc-900/80 p-4">
           <h3 className="mb-3 font-heading text-xl text-amber-400">Play by Play</h3>
-          {recentPlays.length === 0 ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+            {(["All", "1st Half", "2nd Half", "OT"] as PlayFilter[]).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setPlayFilter(value)}
+                className={`rounded-md border px-2 py-1 ${playFilter === value ? "border-amber-400 bg-amber-400/20 text-amber-300" : "border-white/10 bg-zinc-800 text-zinc-300"}`}
+              >
+                {value}
+              </button>
+            ))}
+          </div>
+          {filteredPlays.length === 0 ? (
             <p className="text-sm text-zinc-400">No play-by-play available.</p>
           ) : (
             <div className="max-h-[620px] space-y-2 overflow-y-auto pr-1">
-              {recentPlays.map((play) => (
+              {filteredPlays.map((play) => (
                 <div key={play.id} className="rounded-lg border border-white/5 bg-zinc-800/60 px-3 py-2">
                   <div className="flex items-center justify-between gap-2 text-xs text-zinc-400">
                     <span>P{play.period} · {play.clock}</span>
