@@ -11,6 +11,11 @@ import { dec, formatDate } from "@/lib/utils";
 
 const SEASON = 2026;
 
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
 function toYyyyMmDd(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -64,8 +69,14 @@ export default function HomePage() {
         ]);
 
         if (!cancelled) {
-          setGames(gamesData);
-          setLines(linesData);
+          const todayStart = startOfDay(new Date());
+          const filteredGames = gamesData.filter((game) => {
+            const gameDate = new Date(game.startDate);
+            return startOfDay(gameDate).getTime() === todayStart.getTime();
+          });
+
+          setGames(filteredGames);
+          setLines(linesData.filter((line) => filteredGames.some((game) => game.id === line.gameId)));
           setRankings(rankingsData);
           setRatings(ratingsData);
         }
@@ -101,6 +112,7 @@ export default function HomePage() {
   }, [rankings]);
 
   const apTop25TeamIds = useMemo(() => new Set(apTop25.map((row) => row.teamId)), [apTop25]);
+  const apRankByTeamId = useMemo(() => new Map(apTop25.map((row) => [row.teamId, row.ranking])), [apTop25]);
 
   const conferenceOptions = useMemo(() => {
     const conferenceSet = new Set<string>();
@@ -210,6 +222,8 @@ export default function HomePage() {
                 line={linesMap.get(game.id)}
                 homeRating={ratingsMap.get(game.homeTeamId)}
                 awayRating={ratingsMap.get(game.awayTeamId)}
+                homeApRank={apRankByTeamId.get(game.homeTeamId)}
+                awayApRank={apRankByTeamId.get(game.awayTeamId)}
               />
             ))}
           </div>

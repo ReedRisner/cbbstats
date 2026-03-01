@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { BettingLine, Game, AdjustedRating } from "@/lib/types";
-import { dec, formatTime, moneyline, sign } from "@/lib/utils";
+import { dec, formatTimeWithZone, moneyline, sign } from "@/lib/utils";
 
 interface GameCardProps {
   game: Game;
   line?: BettingLine;
   homeRating?: AdjustedRating;
   awayRating?: AdjustedRating;
+  homeApRank?: number;
+  awayApRank?: number;
 }
 
 function StatusBadge({ label, tone = "default", pulse = false }: { label: string; tone?: "default" | "amber" | "green"; pulse?: boolean }) {
@@ -24,22 +26,29 @@ function TeamRow({
   name,
   conference,
   points,
-  rank,
+  apRank,
+  adjRank,
 }: {
   side: "Away" | "Home";
   name: string;
   conference: string;
   points: number | null;
-  rank?: number;
+  apRank?: number;
+  adjRank?: number;
 }) {
   return (
     <div className="grid grid-cols-[52px_1fr_auto] items-center gap-3">
       <span className="font-mono text-xs uppercase tracking-wide text-zinc-500">{side}</span>
       <div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <p className="font-semibold text-zinc-100">{name}</p>
-          <span className="rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-300">
-            Adj #{rank ?? "—"}
+          {apRank != null && (
+            <span className="rounded border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-300">
+              AP #{apRank}
+            </span>
+          )}
+          <span className="rounded border border-white/10 bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
+            Adj #{adjRank ?? "—"}
           </span>
         </div>
         <p className="text-xs text-zinc-400">{conference}</p>
@@ -49,14 +58,23 @@ function TeamRow({
   );
 }
 
-export function GameCard({ game, line, homeRating, awayRating }: GameCardProps) {
+export function GameCard({ game, line, homeRating, awayRating, homeApRank, awayApRank }: GameCardProps) {
   const primaryLine = line?.lines?.[0];
   const isFinal = game.status.toUpperCase().includes("FINAL");
   const isLive = game.status.toUpperCase().includes("LIVE") || game.status.toUpperCase().includes("IN PROGRESS");
 
+  const gameHref = {
+    pathname: `/game/${game.id}`,
+    query: {
+      home: game.homeTeam,
+      away: game.awayTeam,
+      date: game.startDate,
+    },
+  };
+
   return (
     <Link
-      href={`/game/${game.id}`}
+      href={gameHref}
       className="grid gap-4 rounded-xl border border-white/5 bg-zinc-900/80 p-4 transition hover:border-amber-400/40 hover:bg-zinc-900"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -66,13 +84,27 @@ export function GameCard({ game, line, homeRating, awayRating }: GameCardProps) 
           {isFinal && <StatusBadge label="Final" tone="green" />}
           {isLive && <StatusBadge label="Live" tone="amber" pulse />}
         </div>
-        <p className="font-mono text-xs text-zinc-400">{formatTime(game.startDate)}</p>
+        <p className="font-mono text-xs text-zinc-400">{formatTimeWithZone(game.startDate)}</p>
       </div>
 
       <div className="grid gap-2">
-        <TeamRow side="Away" name={game.awayTeam} conference={game.awayConference} points={game.awayPoints} rank={awayRating?.rankings.net} />
+        <TeamRow
+          side="Away"
+          name={game.awayTeam}
+          conference={game.awayConference}
+          points={game.awayPoints}
+          apRank={awayApRank}
+          adjRank={awayRating?.rankings.net}
+        />
         <div className="pl-[52px] font-mono text-sm text-zinc-500">{game.homePoints == null && game.awayPoints == null ? "VS" : ""}</div>
-        <TeamRow side="Home" name={game.homeTeam} conference={game.homeConference} points={game.homePoints} rank={homeRating?.rankings.net} />
+        <TeamRow
+          side="Home"
+          name={game.homeTeam}
+          conference={game.homeConference}
+          points={game.homePoints}
+          apRank={homeApRank}
+          adjRank={homeRating?.rankings.net}
+        />
       </div>
 
       <div className="grid gap-3 border-t border-white/5 pt-3 md:grid-cols-[1fr_auto] md:items-end">
