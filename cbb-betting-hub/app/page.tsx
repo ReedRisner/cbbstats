@@ -39,7 +39,11 @@ export default function HomePage() {
 
       try {
         const [gamesData, linesData, rankingsData, ratingsData] = await Promise.all([
-          apiFetch<Game[]>("/games", { season: SEASON, date: today }),
+          apiFetch<Game[]>("/games", {
+            season: SEASON,
+            startDateRange: today,
+            endDateRange: today,
+          }),
           apiFetch<BettingLine[]>("/lines", { season: SEASON }),
           apiFetch<Ranking[]>("/rankings", { season: SEASON }),
           apiFetch<AdjustedRating[]>("/ratings/adjusted", { season: SEASON }),
@@ -82,10 +86,15 @@ export default function HomePage() {
       .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime());
   }, [dateMode, games]);
 
-  const apTop25 = useMemo(
-    () => rankings.filter((row) => row.pollType.toUpperCase().includes("AP")).sort((a, b) => a.ranking - b.ranking).slice(0, 25),
-    [rankings]
-  );
+  const apTop25 = useMemo(() => {
+    const apRankings = rankings.filter((row) => row.pollType.toUpperCase().includes("AP"));
+    const latestWeek = apRankings.reduce((maxWeek, row) => Math.max(maxWeek, row.week), 0);
+
+    return apRankings
+      .filter((row) => row.week === latestWeek)
+      .sort((a, b) => a.ranking - b.ranking)
+      .slice(0, 25);
+  }, [rankings]);
 
   const topEfficiency = useMemo(
     () => ratings.slice().sort((a, b) => a.rankings.net - b.rankings.net).slice(0, 20),
