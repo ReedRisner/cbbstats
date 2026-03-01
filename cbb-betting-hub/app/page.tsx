@@ -11,6 +11,11 @@ import { dec, formatDate } from "@/lib/utils";
 
 const SEASON = 2026;
 
+
+function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
 function toYyyyMmDd(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -64,8 +69,14 @@ export default function HomePage() {
         ]);
 
         if (!cancelled) {
-          setGames(gamesData);
-          setLines(linesData);
+          const todayStart = startOfDay(new Date());
+          const filteredGames = gamesData.filter((game) => {
+            const gameDate = new Date(game.startDate);
+            return startOfDay(gameDate).getTime() === todayStart.getTime();
+          });
+
+          setGames(filteredGames);
+          setLines(linesData.filter((line) => filteredGames.some((game) => game.id === line.gameId)));
           setRankings(rankingsData);
           setRatings(ratingsData);
         }
