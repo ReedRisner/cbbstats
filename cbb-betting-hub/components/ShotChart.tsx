@@ -31,30 +31,64 @@ function toRangeBucket(range: string | undefined): Exclude<RangeFilter, "all"> {
   return "mid";
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalizeWidth(rawWidth: number): number {
+  // Handle both 0..50 and -25..25 coordinate systems.
+  if (rawWidth < 0) return clamp(rawWidth + 25, 0, 50);
+  if (rawWidth > 50) return clamp(rawWidth / 2, 0, 50);
+  return clamp(rawWidth, 0, 50);
+}
+
 export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
   const [teamFilter, setTeamFilter] = useState<TeamFilter>("both");
   const [rangeFilter, setRangeFilter] = useState<RangeFilter>("all");
   const [playerFilter, setPlayerFilter] = useState<string>("all");
 
   const shots = useMemo<ShotPoint[]>(() => {
-    return plays
-      .filter((play) => Boolean(play.shotInfo?.location && Number.isFinite(play.shotInfo.location.x) && Number.isFinite(play.shotInfo.location.y)))
-      .map((play) => {
-        const rawX = play.shotInfo!.location.x;
-        const rawY = play.shotInfo!.location.y;
-        const halfX = rawX > 47 ? 94 - rawX : rawX;
-        return {
-          id: play.id,
-          isHomeTeam: play.isHomeTeam,
-          team: play.team,
-          made: play.shotInfo!.made,
-          x: Math.max(0, Math.min(47, halfX)) * 10,
-          y: Math.max(0, Math.min(50, rawY)) * 10,
-          player: play.shotInfo!.shooter?.name ?? "Unknown",
-          rangeBucket: toRangeBucket(play.shotInfo!.range),
-          rawRange: play.shotInfo!.range ?? "Unknown",
-        };
-      });
+    const shotPlays = plays.filter((play) => Boolean(play.shotInfo?.location && Number.isFinite(play.shotInfo.location.x) && Number.isFinite(play.shotInfo.location.y)));
+
+    if (!shotPlays.length) return [];
+
+    const xs = shotPlays.map((play) => play.shotInfo!.location.x);
+    const ys = shotPlays.map((play) => play.shotInfo!.location.y);
+    const xSpan = Math.max(...xs) - Math.min(...xs);
+    const ySpan = Math.max(...ys) - Math.min(...ys);
+    const maxX = Math.max(...xs);
+    const maxY = Math.max(...ys);
+
+    // Prefer known full-court axis (typically > 60 in either feet or normalized 0..100 units).
+    const xLooksLikeLength = maxX > 60;
+    const yLooksLikeLength = maxY > 60;
+    const xIsLengthAxis = xLooksLikeLength && !yLooksLikeLength ? true : !xLooksLikeLength && yLooksLikeLength ? false : xSpan >= ySpan;
+
+    return shotPlays.map((play) => {
+      const rawX = play.shotInfo!.location.x;
+      const rawY = play.shotInfo!.location.y;
+      const lengthCoord = xIsLengthAxis ? rawX : rawY;
+      const widthCoord = xIsLengthAxis ? rawY : rawX;
+
+      const fullCourtLength = Math.max(maxX, maxY) > 97 ? 100 : 94;
+      const halfCourtLength = fullCourtLength / 2;
+
+      const foldedLength = Math.min(lengthCoord, fullCourtLength - lengthCoord);
+      const normalizedLength = clamp((foldedLength / halfCourtLength) * 47, 0, 47);
+      const normalizedWidth = normalizeWidth(widthCoord);
+
+      return {
+        id: play.id,
+        isHomeTeam: play.isHomeTeam,
+        team: play.team,
+        made: play.shotInfo!.made,
+        x: (normalizedWidth / 50) * 470,
+        y: (normalizedLength / 47) * 500,
+        player: play.shotInfo!.shooter?.name ?? "Unknown",
+        rangeBucket: toRangeBucket(play.shotInfo!.range),
+        rawRange: play.shotInfo!.range ?? "Unknown",
+      };
+    });
   }, [plays]);
 
   const players = useMemo(() => {
@@ -137,7 +171,7 @@ export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
             <circle
               key={shot.id}
               cx={shot.x}
-              cy={500 - shot.y}
+              cy={shot.y}
               r={4}
               fill={shot.made ? "#4ade80" : "none"}
               stroke={shot.made ? "#4ade80" : "#f87171"}

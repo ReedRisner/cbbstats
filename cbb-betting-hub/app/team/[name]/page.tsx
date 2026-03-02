@@ -33,24 +33,38 @@ function toHex(color: string | null | undefined): string {
   return `#${raw}`;
 }
 
-function namesMatch(candidate: string | null | undefined, routeName: string): boolean {
+function matchScore(candidate: string | null | undefined, routeName: string): number {
   const normalizedCandidate = normalizeName(candidate);
   const normalizedRoute = normalizeName(routeName);
-  if (!normalizedCandidate || !normalizedRoute) return false;
-  return (
-    normalizedCandidate === normalizedRoute ||
-    normalizedCandidate.includes(normalizedRoute) ||
-    normalizedRoute.includes(normalizedCandidate)
-  );
+  if (!normalizedCandidate || !normalizedRoute) return -1;
+  if (normalizedCandidate === normalizedRoute) return 100;
+
+  const routeWords = normalizedRoute.split(/\s+/).filter(Boolean);
+  const candidateWords = normalizedCandidate.split(/\s+/).filter(Boolean);
+  const routeWordSet = new Set(routeWords);
+  const candidateWordSet = new Set(candidateWords);
+
+  if (routeWords.every((word) => candidateWordSet.has(word))) return 60;
+  if (candidateWords.every((word) => routeWordSet.has(word))) return 40;
+  return -1;
 }
 
 function findTeamByName(teams: Team[], routeName: string): Team | null {
-  return (
-    teams.find((entry) => {
-      const candidates = [entry.displayName, entry.school, entry.shortDisplayName, entry.abbreviation];
-      return candidates.some((candidate) => namesMatch(candidate, routeName));
-    }) ?? teams[0] ?? null
-  );
+  let bestTeam: Team | null = null;
+  let bestScore = -1;
+
+  teams.forEach((entry) => {
+    const candidates = [entry.displayName, entry.school, entry.shortDisplayName, entry.abbreviation];
+    candidates.forEach((candidate) => {
+      const score = matchScore(candidate, routeName);
+      if (score > bestScore) {
+        bestScore = score;
+        bestTeam = entry;
+      }
+    });
+  });
+
+  return bestTeam;
 }
 
 export default function TeamDetailPage() {
@@ -129,8 +143,8 @@ export default function TeamDetailPage() {
 
       const matchedAdjusted =
         adjustedRows.find((row) => resolvedTeamId != null && row.teamId === resolvedTeamId) ??
-        adjustedRows.find((row) => namesMatch(row.team, resolvedTeamLabel)) ??
-        adjustedRows.find((row) => namesMatch(row.team, teamName)) ??
+        adjustedRows.find((row) => matchScore(row.team, resolvedTeamLabel) > 0) ??
+        adjustedRows.find((row) => matchScore(row.team, teamName) > 0) ??
         null;
 
       const resolvedTeamNames = new Set(
@@ -505,7 +519,14 @@ export default function TeamDetailPage() {
             return (
               <Link
                 key={game.id}
-                href={`/game/${game.id}`}
+                href={{
+                  pathname: `/game/${game.id}`,
+                  query: {
+                    home: game.homeTeam,
+                    away: game.awayTeam,
+                    date: game.startDate,
+                  },
+                }}
                 className="flex items-center justify-between rounded-xl border border-white/10 bg-zinc-900/70 px-4 py-3 transition hover:border-amber-400/40"
               >
                 <div className="space-y-0.5">
