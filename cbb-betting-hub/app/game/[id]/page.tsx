@@ -10,7 +10,7 @@ import { ErrorMsg } from "@/components/ui/ErrorMsg";
 import { Loader } from "@/components/ui/Loader";
 import { Tabs } from "@/components/ui/Tabs";
 import { apiFetch } from "@/lib/api";
-import { BettingLine, Game, GamePlayerStats, GameTeamStats, Lineup, Play } from "@/lib/types";
+import { BettingLine, Game, GamePlayerStats, GameTeamStats, Lineup, PlayerSeasonStats, Play } from "@/lib/types";
 import { dec, formatDate, formatTimeWithZone, moneyline, normalizePct, pct, sign } from "@/lib/utils";
 
 const SEASON = 2026;
@@ -91,6 +91,30 @@ export default function GameDetailPage() {
   const [troubleshooting, setTroubleshooting] = useState<string[]>([]);
   const [lineupSort, setLineupSort] = useState<LineupSortKey>("minutes");
   const [playFilter, setPlayFilter] = useState<PlayFilter>("All");
+
+
+  const normalizeName = (value: string | null | undefined) => (value ?? "").trim().toLowerCase();
+
+  const handlePlayerClick = async (athleteId: number, athleteSourceId: string, name: string, team: string) => {
+    const season = game?.season ?? SEASON;
+
+    try {
+      const seasonRows = await apiFetch<PlayerSeasonStats[]>("/stats/player/season", { season, team });
+      const normalizedName = normalizeName(name);
+      const match =
+        seasonRows.find((row) => row.athleteId === athleteId) ??
+        seasonRows.find((row) => row.athleteSourceId === athleteSourceId) ??
+        seasonRows.find((row) => normalizeName(row.name) === normalizedName) ??
+        null;
+
+      const resolvedId = match?.athleteId ?? athleteId;
+      const resolvedName = match?.name ?? name;
+      router.push(`/player/${resolvedId}?name=${encodeURIComponent(resolvedName)}`);
+      return;
+    } catch {
+      router.push(`/player/${athleteId}?name=${encodeURIComponent(name)}`);
+    }
+  };
 
   useEffect(() => {
     if (!Number.isFinite(gameId)) {
@@ -726,14 +750,14 @@ export default function GameDetailPage() {
             <BoxScore
               teamData={awayPlayers}
               teamTotals={awayTeamStats?.teamStats}
-              onPlayerClick={(id) => router.push(`/player/${id}`)}
+              onPlayerClick={handlePlayerClick}
             />
           )}
           {homePlayers && (
             <BoxScore
               teamData={homePlayers}
               teamTotals={homeTeamStats?.teamStats}
-              onPlayerClick={(id) => router.push(`/player/${id}`)}
+              onPlayerClick={handlePlayerClick}
             />
           )}
           {!awayPlayers && !homePlayers && <ErrorMsg message="Box score unavailable." />}
