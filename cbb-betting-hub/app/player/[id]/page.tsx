@@ -93,7 +93,19 @@ async function loadPlayerProfile(playerId: number, fallbackName: string | null):
     apiFetch<TeamRoster[]>("/teams/roster", { season: SEASON, team }),
   ]);
 
-  const gameStats = teamPlayersResult.status === "fulfilled" ? teamPlayersResult.value : [];
+  const gameStats =
+    teamPlayersResult.status === "fulfilled"
+      ? teamPlayersResult.value.filter((game) =>
+          game.players.some((player) => {
+            const normalized = normalizeName(player.name);
+            return (
+              identity.athleteIds.has(player.athleteId) ||
+              (player.athleteSourceId ? identity.athleteSourceIds.has(player.athleteSourceId) : false) ||
+              (normalized ? identity.names.has(normalized) : false)
+            );
+          })
+        )
+      : [];
   if (teamPlayersResult.status === "rejected") warnings.push(`Team player games unavailable: ${String(teamPlayersResult.reason)}`);
 
   const seasonStats =
