@@ -37,24 +37,41 @@ export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
   const [playerFilter, setPlayerFilter] = useState<string>("all");
 
   const shots = useMemo<ShotPoint[]>(() => {
-    return plays
-      .filter((play) => Boolean(play.shotInfo?.location && Number.isFinite(play.shotInfo.location.x) && Number.isFinite(play.shotInfo.location.y)))
-      .map((play) => {
-        const rawX = play.shotInfo!.location.x;
-        const rawY = play.shotInfo!.location.y;
-        const halfX = rawX > 47 ? 94 - rawX : rawX;
-        return {
-          id: play.id,
-          isHomeTeam: play.isHomeTeam,
-          team: play.team,
-          made: play.shotInfo!.made,
-          x: Math.max(0, Math.min(47, halfX)) * 10,
-          y: Math.max(0, Math.min(50, rawY)) * 10,
-          player: play.shotInfo!.shooter?.name ?? "Unknown",
-          rangeBucket: toRangeBucket(play.shotInfo!.range),
-          rawRange: play.shotInfo!.range ?? "Unknown",
-        };
-      });
+    const shotPlays = plays.filter((play) => Boolean(play.shotInfo?.location && Number.isFinite(play.shotInfo.location.x) && Number.isFinite(play.shotInfo.location.y)));
+
+    if (!shotPlays.length) return [];
+
+    const transformed = shotPlays.map((play) => {
+      const rawX = play.shotInfo!.location.x;
+      const rawY = play.shotInfo!.location.y;
+      return {
+        play,
+        x: rawX > 47 ? 94 - rawX : rawX,
+        y: rawY,
+      };
+    });
+
+    const minX = Math.min(...transformed.map((shot) => shot.x));
+    const maxX = Math.max(...transformed.map((shot) => shot.x));
+    const minY = Math.min(...transformed.map((shot) => shot.y));
+    const maxY = Math.max(...transformed.map((shot) => shot.y));
+
+    const safeScale = (value: number, min: number, max: number, outputMax: number) => {
+      if (max <= min) return outputMax / 2;
+      return ((value - min) / (max - min)) * outputMax;
+    };
+
+    return transformed.map(({ play, x, y }) => ({
+      id: play.id,
+      isHomeTeam: play.isHomeTeam,
+      team: play.team,
+      made: play.shotInfo!.made,
+      x: Math.max(0, Math.min(470, safeScale(x, minX, maxX, 470))),
+      y: Math.max(0, Math.min(500, safeScale(y, minY, maxY, 500))),
+      player: play.shotInfo!.shooter?.name ?? "Unknown",
+      rangeBucket: toRangeBucket(play.shotInfo!.range),
+      rawRange: play.shotInfo!.range ?? "Unknown",
+    }));
   }, [plays]);
 
   const players = useMemo(() => {

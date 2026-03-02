@@ -69,7 +69,9 @@ export default function RankingsPage() {
         (entry) =>
           entry.pollType.toLowerCase().includes("ap") &&
           entry.week === latestApWeek.week &&
-          entry.pollDate === latestApWeek.pollDate
+          entry.pollDate === latestApWeek.pollDate &&
+          entry.ranking >= 1 &&
+          entry.ranking <= 25
       )
       .sort((a, b) => a.ranking - b.ranking)
       .slice(0, 25);
