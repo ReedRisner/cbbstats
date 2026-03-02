@@ -12,6 +12,23 @@ interface EfficiencyScatterProps {
 
 type ScatterPoint = AdjustedRating & { yPlot: number; fill: string; size: number };
 
+function ScatterTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: ScatterPoint }> }) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0]?.payload;
+  if (!point) return null;
+
+  return (
+    <div className="rounded border border-zinc-700 bg-zinc-950/95 px-3 py-2 text-xs text-zinc-100 shadow-lg">
+      <p className="font-semibold text-amber-300">{point.team}</p>
+      <p className="text-zinc-300">{point.conference}</p>
+      <p>Off: {dec(point.offensiveRating, 1)}</p>
+      <p>Def: {dec(point.defensiveRating, 1)}</p>
+      <p>Net: {dec(point.netRating, 1)}</p>
+      <p>Rank: #{point.rankings?.net ?? "—"}</p>
+    </div>
+  );
+}
+
 export function EfficiencyScatter({ ratings, onTeamClick }: EfficiencyScatterProps) {
   const [activeTeam, setActiveTeam] = useState<string | null>(null);
 
@@ -64,14 +81,7 @@ export function EfficiencyScatter({ ratings, onTeamClick }: EfficiencyScatterPro
             <ZAxis dataKey="size" range={[70, 180]} />
             <Tooltip
               cursor={{ strokeDasharray: "3 3" }}
-              contentStyle={{ backgroundColor: "#09090b", border: "1px solid #3f3f46" }}
-              formatter={(_, __, item) => {
-                const payload = item.payload as ScatterPoint;
-                return [
-                  `${payload.conference} | Off ${dec(payload.offensiveRating, 1)} | Def ${dec(payload.defensiveRating, 1)} | Net ${dec(payload.netRating, 1)} | #${payload.rankings?.net ?? "—"}`,
-                  payload.team,
-                ];
-              }}
+              content={<ScatterTooltip />}
             />
 
             <ReferenceLine x={avgOff} stroke="#a1a1aa" strokeDasharray="5 4" />

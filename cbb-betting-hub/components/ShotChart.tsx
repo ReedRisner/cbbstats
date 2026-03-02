@@ -37,24 +37,40 @@ export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
   const [playerFilter, setPlayerFilter] = useState<string>("all");
 
   const shots = useMemo<ShotPoint[]>(() => {
-    return plays
-      .filter((play) => Boolean(play.shotInfo?.location && Number.isFinite(play.shotInfo.location.x) && Number.isFinite(play.shotInfo.location.y)))
-      .map((play) => {
-        const rawX = play.shotInfo!.location.x;
-        const rawY = play.shotInfo!.location.y;
-        const halfX = rawX > 47 ? 94 - rawX : rawX;
-        return {
-          id: play.id,
-          isHomeTeam: play.isHomeTeam,
-          team: play.team,
-          made: play.shotInfo!.made,
-          x: Math.max(0, Math.min(47, halfX)) * 10,
-          y: Math.max(0, Math.min(50, rawY)) * 10,
-          player: play.shotInfo!.shooter?.name ?? "Unknown",
-          rangeBucket: toRangeBucket(play.shotInfo!.range),
-          rawRange: play.shotInfo!.range ?? "Unknown",
-        };
-      });
+    const shotPlays = plays.filter((play) => Boolean(play.shotInfo?.location && Number.isFinite(play.shotInfo.location.x) && Number.isFinite(play.shotInfo.location.y)));
+
+    if (!shotPlays.length) return [];
+
+    const xs = shotPlays.map((play) => play.shotInfo!.location.x);
+    const ys = shotPlays.map((play) => play.shotInfo!.location.y);
+    const xSpan = Math.max(...xs) - Math.min(...xs);
+    const ySpan = Math.max(...ys) - Math.min(...ys);
+
+    // The larger axis is typically full-court length (~94), the smaller is width (~50).
+    const xIsLengthAxis = xSpan >= ySpan;
+    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+    return shotPlays.map((play) => {
+      const rawX = play.shotInfo!.location.x;
+      const rawY = play.shotInfo!.location.y;
+      const lengthCoord = xIsLengthAxis ? rawX : rawY;
+      const widthCoord = xIsLengthAxis ? rawY : rawX;
+
+      const normalizedLength = clamp(Math.min(lengthCoord, 94 - lengthCoord), 0, 47);
+      const normalizedWidth = clamp(widthCoord, 0, 50);
+
+      return {
+      id: play.id,
+      isHomeTeam: play.isHomeTeam,
+      team: play.team,
+      made: play.shotInfo!.made,
+      x: (normalizedWidth / 50) * 470,
+      y: (normalizedLength / 47) * 500,
+      player: play.shotInfo!.shooter?.name ?? "Unknown",
+      rangeBucket: toRangeBucket(play.shotInfo!.range),
+      rawRange: play.shotInfo!.range ?? "Unknown",
+      };
+    });
   }, [plays]);
 
   const players = useMemo(() => {
@@ -137,7 +153,7 @@ export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
             <circle
               key={shot.id}
               cx={shot.x}
-              cy={500 - shot.y}
+              cy={shot.y}
               r={4}
               fill={shot.made ? "#4ade80" : "none"}
               stroke={shot.made ? "#4ade80" : "#f87171"}
