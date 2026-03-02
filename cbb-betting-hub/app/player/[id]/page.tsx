@@ -48,68 +48,92 @@ export default function PlayerDetailPage() {
       setError(null);
       setWarnings([]);
 
-      const results = await Promise.allSettled([
-        apiFetch<PlayerSeasonStats[]>("/stats/player/season", { season: SEASON, athleteId: playerId }),
+      const nextWarnings: string[] = [];
+
+      const gamesResult = await Promise.allSettled([
         apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, athleteId: playerId }),
-        apiFetch<ShootingSeasonStats[]>("/stats/player/shooting/season", { season: SEASON, athleteId: playerId }),
       ]);
 
       if (cancelled) return;
 
-      const nextWarnings: string[] = [];
+      const gameLogValue = gamesResult[0];
+      let resolvedGames: GamePlayerStats[] = [];
+      if (gameLogValue.status === "fulfilled") {
+        resolvedGames = gameLogValue.value;
+        setGameStats(resolvedGames);
+      } else {
+        setGameStats([]);
+        nextWarnings.push(`Game log unavailable: ${String(gameLogValue.reason)}`);
+      }
 
-      const seasonResult = results[0];
-      let nextSeasonStats: PlayerSeasonStats | null = null;
+      const detectedTeam =
+        resolvedGames
+          .find((game) => game.players.some((player) => player.athleteId === playerId))
+          ?.team?.trim() || null;
+
+      if (!detectedTeam) {
+        setSeasonStats(null);
+        setShootingStats(null);
+        setBio(null);
+        if (!resolvedGames.length) {
+          setError("Unable to load player details");
+        } else {
+          nextWarnings.push("Unable to determine player team for season and shooting stats.");
+        }
+        setWarnings(nextWarnings);
+        setLoading(false);
+        return;
+      }
+
+      const teamResults = await Promise.allSettled([
+        apiFetch<PlayerSeasonStats[]>("/stats/player/season", { season: SEASON, team: detectedTeam }),
+        apiFetch<ShootingSeasonStats[]>("/stats/player/shooting/season", { season: SEASON, team: detectedTeam }),
+        apiFetch<TeamRoster[]>("/teams/roster", { season: SEASON, team: detectedTeam }),
+      ]);
+
+      if (cancelled) return;
+
+      const seasonResult = teamResults[0];
+      let matchedSeasonStats: PlayerSeasonStats | null = null;
       if (seasonResult.status === "fulfilled") {
-        nextSeasonStats = seasonResult.value[0] ?? null;
-        setSeasonStats(nextSeasonStats);
+        matchedSeasonStats = seasonResult.value.find((row) => row.athleteId === playerId) ?? null;
+        setSeasonStats(matchedSeasonStats);
+        if (!matchedSeasonStats) {
+          nextWarnings.push(`Season stats missing for athleteId=${playerId} on ${detectedTeam}.`);
+        }
       } else {
         setSeasonStats(null);
         nextWarnings.push(`Season stats unavailable: ${String(seasonResult.reason)}`);
       }
 
-      const gamesResult = results[1];
-      if (gamesResult.status === "fulfilled") {
-        setGameStats(gamesResult.value);
-      } else {
-        setGameStats([]);
-        nextWarnings.push(`Game log unavailable: ${String(gamesResult.reason)}`);
-      }
-
-      const shootingResult = results[2];
+      const shootingResult = teamResults[1];
+      let matchedShootingStats: ShootingSeasonStats | null = null;
       if (shootingResult.status === "fulfilled") {
-        setShootingStats(shootingResult.value[0] ?? null);
+        matchedShootingStats = shootingResult.value.find((row) => row.athleteId === playerId) ?? null;
+        setShootingStats(matchedShootingStats);
+        if (!matchedShootingStats) {
+          nextWarnings.push(`Shooting stats missing for athleteId=${playerId} on ${detectedTeam}.`);
+        }
       } else {
         setShootingStats(null);
         nextWarnings.push(`Shooting stats unavailable: ${String(shootingResult.reason)}`);
       }
 
-      if (nextSeasonStats?.team) {
-        const rosterResult = await Promise.allSettled([
-          apiFetch<TeamRoster[]>("/teams/roster", { season: SEASON, team: nextSeasonStats.team }),
-        ]);
-
-        if (!cancelled) {
-          const rosterValue = rosterResult[0];
-          if (rosterValue.status === "fulfilled") {
-            const rosterPlayers = rosterValue.value[0]?.players ?? [];
-            setBio(rosterPlayers.find((player) => player.id === playerId) ?? null);
-          } else {
-            setBio(null);
-            nextWarnings.push(`Roster bio unavailable: ${String(rosterValue.reason)}`);
-          }
-        }
+      const rosterResult = teamResults[2];
+      if (rosterResult.status === "fulfilled") {
+        const rosterPlayers = rosterResult.value[0]?.players ?? [];
+        setBio(rosterPlayers.find((player) => player.id === playerId) ?? null);
       } else {
         setBio(null);
+        nextWarnings.push(`Roster bio unavailable: ${String(rosterResult.reason)}`);
       }
 
-      if (!cancelled) {
-        if (!nextSeasonStats && nextWarnings.length >= 3) {
-          setError("Unable to load player details");
-        }
-        setWarnings(nextWarnings);
-        setLoading(false);
+      if (!matchedSeasonStats && !matchedShootingStats && !resolvedGames.length) {
+        setError("Unable to load player details");
       }
+
+      setWarnings(nextWarnings);
+      setLoading(false);
     }
 
     void load();
@@ -175,9 +199,7 @@ export default function PlayerDetailPage() {
               <span>#{bio?.jersey || "—"}</span>
               <span>{heightStr(bio?.height ?? null)}</span>
               <span>{bio?.weight ? `${bio.weight} lbs` : "—"}</span>
-              <span>
-                {bio?.hometown?.city && bio?.hometown?.state ? `${bio.hometown.city}, ${bio.hometown.state}` : "—"}
-              </span>
+              <span>{bio?.hometown?.city && bio?.hometown?.state ? `${bio.hometown.city}, ${bio.hometown.state}` : "—"}</span>
             </div>
           </div>
 
@@ -268,9 +290,7 @@ function SplitCard({
   return (
     <div className="rounded-xl border border-white/10 bg-zinc-900/60 p-4">
       <p className="text-xs uppercase tracking-wide text-zinc-400">{label}</p>
-      <p className="mt-1 font-mono text-3xl text-zinc-100">
-        {made != null && attempted != null ? `${made}-${attempted}` : "—"}
-      </p>
+      <p className="mt-1 font-mono text-3xl text-zinc-100">{made != null && attempted != null ? `${made}-${attempted}` : "—"}</p>
       <p className="font-semibold text-amber-300">{pct(value)}</p>
     </div>
   );
