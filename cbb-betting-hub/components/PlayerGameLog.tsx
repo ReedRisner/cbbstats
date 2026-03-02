@@ -5,12 +5,14 @@ export interface PlayerGameLogProps {
   gameStats: GamePlayerStats[];
   playerId: number;
   playerName?: string;
-  onGameClick: (gameId: number) => void;
+  onGameClick: (game: { gameId: number; home: string; away: string; date: string }) => void;
 }
 
 type PlayerGameRow = {
   gameId: number;
   startDate: string;
+  homeTeam: string;
+  awayTeam: string;
   opponentLabel: string;
   minutes: number;
   points: number;
@@ -52,6 +54,8 @@ export function PlayerGameLog({ gameStats, playerId, playerName, onGameClick }: 
       return {
         gameId: game.gameId,
         startDate: game.startDate,
+        homeTeam: game.isHome ? game.team : game.opponent,
+        awayTeam: game.isHome ? game.opponent : game.team,
         opponentLabel: `${game.isHome ? "vs" : "@"} ${game.opponent}`,
         minutes: player.minutes,
         points: player.points,
@@ -110,7 +114,7 @@ export function PlayerGameLog({ gameStats, playerId, playerName, onGameClick }: 
             <tr
               key={`${row.gameId}-${row.startDate}`}
               className="cursor-pointer border-t border-white/5 text-zinc-200 transition hover:bg-zinc-800/70"
-              onClick={() => onGameClick(row.gameId)}
+              onClick={() => onGameClick({ gameId: row.gameId, home: row.homeTeam, away: row.awayTeam, date: row.startDate })}
             >
               <td className="px-3 py-2">{formatDate(row.startDate)}</td>
               <td className="px-3 py-2">{row.opponentLabel}</td>

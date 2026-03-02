@@ -309,7 +309,7 @@ export default function PlayerDetailPage() {
         </section>
       ) : null}
 
-      {activeTab === "Game Log" ? <PlayerGameLog gameStats={gameStats} playerId={playerId} playerName={resolvedPlayerName || name} onGameClick={(gameId) => router.push(`/game/${gameId}`)} /> : null}
+      {activeTab === "Game Log" ? <PlayerGameLog gameStats={gameStats} playerId={playerId} playerName={resolvedPlayerName || name} onGameClick={(game) => router.push(`/game/${game.gameId}?home=${encodeURIComponent(game.home)}&away=${encodeURIComponent(game.away)}&date=${encodeURIComponent(game.date)}`)} /> : null}
 
       {activeTab === "Shooting" ? (
         shootingStats ? <ShootingBreakdown stats={shootingStats} /> : <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-5 text-sm text-zinc-400">No shooting breakdown available.</div>
