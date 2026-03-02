@@ -17,6 +17,61 @@ const SEASON = 2026;
 
 type PlayerTab = "Season Stats" | "Game Log" | "Shooting";
 
+
+type PlayerIdentity = {
+  athleteIds: Set<number>;
+  athleteSourceIds: Set<string>;
+  names: Set<string>;
+};
+
+function normalizeName(name: string | null | undefined): string {
+  return (name ?? "").trim().toLowerCase();
+}
+
+function resolvePlayerIdentity(
+  games: GamePlayerStats[],
+  playerId: number,
+  fallbackName: string | null
+): { team: string | null; identity: PlayerIdentity } {
+  const identity: PlayerIdentity = {
+    athleteIds: new Set([playerId]),
+    athleteSourceIds: new Set(),
+    names: new Set(),
+  };
+
+  if (fallbackName) {
+    const normalized = normalizeName(fallbackName);
+    if (normalized) identity.names.add(normalized);
+  }
+
+  for (const game of games) {
+    for (const player of game.players) {
+      const normalizedName = normalizeName(player.name);
+      const candidateById = player.athleteId === playerId;
+      const candidateByName = normalizedName && identity.names.has(normalizedName);
+      if (!candidateById && !candidateByName) continue;
+
+      identity.athleteIds.add(player.athleteId);
+      if (player.athleteSourceId) identity.athleteSourceIds.add(player.athleteSourceId);
+      if (normalizedName) identity.names.add(normalizedName);
+    }
+  }
+
+  for (const game of games) {
+    const hasMatch = game.players.some((player) => {
+      const normalizedName = normalizeName(player.name);
+      return (
+        identity.athleteIds.has(player.athleteId) ||
+        (player.athleteSourceId ? identity.athleteSourceIds.has(player.athleteSourceId) : false) ||
+        (normalizedName ? identity.names.has(normalizedName) : false)
+      );
+    });
+    if (hasMatch) return { team: game.team?.trim() || null, identity };
+  }
+
+  return { team: null, identity };
+}
+
 export default function PlayerDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -66,10 +121,7 @@ export default function PlayerDetailPage() {
         nextWarnings.push(`Game log unavailable: ${String(gameLogValue.reason)}`);
       }
 
-      const detectedTeam =
-        resolvedGames
-          .find((game) => game.players.some((player) => player.athleteId === playerId))
-          ?.team?.trim() || null;
+      const { team: detectedTeam, identity } = resolvePlayerIdentity(resolvedGames, playerId, fallbackName);
 
       if (!detectedTeam) {
         setSeasonStats(null);
@@ -96,7 +148,11 @@ export default function PlayerDetailPage() {
       const seasonResult = teamResults[0];
       let matchedSeasonStats: PlayerSeasonStats | null = null;
       if (seasonResult.status === "fulfilled") {
-        matchedSeasonStats = seasonResult.value.find((row) => row.athleteId === playerId) ?? null;
+        matchedSeasonStats =
+          seasonResult.value.find((row) => identity.athleteIds.has(row.athleteId)) ??
+          seasonResult.value.find((row) => identity.athleteSourceIds.has(row.athleteSourceId)) ??
+          seasonResult.value.find((row) => identity.names.has(normalizeName(row.name))) ??
+          null;
         setSeasonStats(matchedSeasonStats);
         if (!matchedSeasonStats) {
           nextWarnings.push(`Season stats missing for athleteId=${playerId} on ${detectedTeam}.`);
@@ -109,7 +165,10 @@ export default function PlayerDetailPage() {
       const shootingResult = teamResults[1];
       let matchedShootingStats: ShootingSeasonStats | null = null;
       if (shootingResult.status === "fulfilled") {
-        matchedShootingStats = shootingResult.value.find((row) => row.athleteId === playerId) ?? null;
+        matchedShootingStats =
+          shootingResult.value.find((row) => (row.athleteId != null ? identity.athleteIds.has(row.athleteId) : false)) ??
+          shootingResult.value.find((row) => identity.names.has(normalizeName(row.athleteName))) ??
+          null;
         setShootingStats(matchedShootingStats);
         if (!matchedShootingStats) {
           nextWarnings.push(`Shooting stats missing for athleteId=${playerId} on ${detectedTeam}.`);
@@ -122,7 +181,12 @@ export default function PlayerDetailPage() {
       const rosterResult = teamResults[2];
       if (rosterResult.status === "fulfilled") {
         const rosterPlayers = rosterResult.value[0]?.players ?? [];
-        setBio(rosterPlayers.find((player) => player.id === playerId) ?? null);
+        setBio(
+          rosterPlayers.find((player) => identity.athleteIds.has(player.id)) ??
+            rosterPlayers.find((player) => identity.athleteSourceIds.has(player.sourceId)) ??
+            rosterPlayers.find((player) => identity.names.has(normalizeName(player.name))) ??
+            null
+        );
       } else {
         setBio(null);
         nextWarnings.push(`Roster bio unavailable: ${String(rosterResult.reason)}`);
@@ -141,7 +205,7 @@ export default function PlayerDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [playerId]);
+  }, [fallbackName, playerId]);
 
   const name = seasonStats?.name ?? shootingStats?.athleteName ?? fallbackName ?? `Player #${playerId}`;
   const ppg = seasonStats ? perGame(seasonStats.points, seasonStats.games) : "—";
