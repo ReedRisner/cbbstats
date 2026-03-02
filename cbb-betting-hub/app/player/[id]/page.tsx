@@ -10,7 +10,7 @@ import { Loader } from "@/components/ui/Loader";
 import { StatPill } from "@/components/ui/StatPill";
 import { Tabs } from "@/components/ui/Tabs";
 import { apiFetch } from "@/lib/api";
-import { Game, GamePlayerStats, PlayerSeasonStats, ShootingSeasonStats, TeamRoster } from "@/lib/types";
+import { GamePlayerStats, PlayerSeasonStats, ShootingSeasonStats, TeamRoster } from "@/lib/types";
 import { dec, heightStr, perGame, pct } from "@/lib/utils";
 
 const SEASON = 2026;
@@ -86,22 +86,14 @@ async function loadPlayerProfile(playerId: number, fallbackName: string | null):
     return { seasonStats: null, shootingStats: null, bio: null, gameStats: [], playerIds: Array.from(identity.athleteIds), warnings };
   }
 
-  const [teamGamesResult, teamPlayersResult, seasonResult, shootingResult, rosterResult] = await Promise.allSettled([
-    apiFetch<Game[]>("/games", { season: SEASON, team }),
+  const [teamPlayersResult, seasonResult, shootingResult, rosterResult] = await Promise.allSettled([
     apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, team }),
     apiFetch<PlayerSeasonStats[]>("/stats/player/season", { season: SEASON, team }),
     apiFetch<ShootingSeasonStats[]>("/stats/player/shooting/season", { season: SEASON, team }),
     apiFetch<TeamRoster[]>("/teams/roster", { season: SEASON, team }),
   ]);
 
-  const teamGameIds =
-    teamGamesResult.status === "fulfilled" ? new Set(teamGamesResult.value.map((g) => g.id)) : new Set<number>();
-  if (teamGamesResult.status === "rejected") warnings.push(`Team games unavailable: ${String(teamGamesResult.reason)}`);
-
-  const gameStats =
-    teamPlayersResult.status === "fulfilled"
-      ? teamPlayersResult.value.filter((game) => !teamGameIds.size || teamGameIds.has(game.gameId))
-      : [];
+  const gameStats = teamPlayersResult.status === "fulfilled" ? teamPlayersResult.value : [];
   if (teamPlayersResult.status === "rejected") warnings.push(`Team player games unavailable: ${String(teamPlayersResult.reason)}`);
 
   const seasonStats =
