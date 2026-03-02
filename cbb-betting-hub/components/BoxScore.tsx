@@ -19,6 +19,7 @@ function minutesToClock(minutes: number): string {
 export function BoxScore({ teamData, teamTotals, onPlayerClick }: BoxScoreProps) {
   const [sortKey, setSortKey] = useState<BoxScoreSortKey>("minutes");
   const [ascending, setAscending] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const handleSort = (key: BoxScoreSortKey) => {
     if (sortKey === key) {
@@ -62,7 +63,16 @@ export function BoxScore({ teamData, teamTotals, onPlayerClick }: BoxScoreProps)
           <h3 className="font-heading text-xl text-amber-400">{teamData.team}</h3>
           <p className="text-xs text-zinc-400">{teamData.conference}</p>
         </div>
-        <p className="text-xs text-zinc-500">Click column headers to sort</p>
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-zinc-500">Click column headers to sort</p>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((current) => !current)}
+            className="rounded border border-amber-400/40 bg-amber-400/10 px-2 py-1 text-xs text-amber-300"
+          >
+            {showAdvanced ? "Hide Advanced Stats" : "Toggle Advanced Stats"}
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
