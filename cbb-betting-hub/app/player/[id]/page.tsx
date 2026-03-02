@@ -10,13 +10,11 @@ import { Loader } from "@/components/ui/Loader";
 import { StatPill } from "@/components/ui/StatPill";
 import { Tabs } from "@/components/ui/Tabs";
 import { apiFetch } from "@/lib/api";
-import { GamePlayerStats, PlayerSeasonStats, ShootingSeasonStats, TeamRoster } from "@/lib/types";
+import { Game, GamePlayerStats, PlayerSeasonStats, ShootingSeasonStats, TeamRoster } from "@/lib/types";
 import { dec, heightStr, perGame, pct } from "@/lib/utils";
 
 const SEASON = 2026;
-
 type PlayerTab = "Season Stats" | "Game Log" | "Shooting";
-
 
 type PlayerIdentity = {
   athleteIds: Set<number>;
@@ -24,33 +22,30 @@ type PlayerIdentity = {
   names: Set<string>;
 };
 
+type PlayerProfile = {
+  seasonStats: PlayerSeasonStats | null;
+  shootingStats: ShootingSeasonStats | null;
+  bio: TeamRoster["players"][number] | null;
+  gameStats: GamePlayerStats[];
+  warnings: string[];
+};
+
 function normalizeName(name: string | null | undefined): string {
   return (name ?? "").trim().toLowerCase();
 }
 
-function resolvePlayerIdentity(
-  games: GamePlayerStats[],
-  playerId: number,
-  fallbackName: string | null
-): { team: string | null; identity: PlayerIdentity } {
+function resolvePlayerIdentity(games: GamePlayerStats[], playerId: number, fallbackName: string | null): { team: string | null; identity: PlayerIdentity } {
   const identity: PlayerIdentity = {
     athleteIds: new Set([playerId]),
     athleteSourceIds: new Set(),
-    names: new Set(),
+    names: new Set(fallbackName ? [normalizeName(fallbackName)] : []),
   };
-
-  if (fallbackName) {
-    const normalized = normalizeName(fallbackName);
-    if (normalized) identity.names.add(normalized);
-  }
 
   for (const game of games) {
     for (const player of game.players) {
       const normalizedName = normalizeName(player.name);
-      const candidateById = player.athleteId === playerId;
-      const candidateByName = normalizedName && identity.names.has(normalizedName);
-      if (!candidateById && !candidateByName) continue;
-
+      const isSeed = player.athleteId === playerId || (normalizedName && identity.names.has(normalizedName));
+      if (!isSeed) continue;
       identity.athleteIds.add(player.athleteId);
       if (player.athleteSourceId) identity.athleteSourceIds.add(player.athleteSourceId);
       if (normalizedName) identity.names.add(normalizedName);
@@ -72,6 +67,70 @@ function resolvePlayerIdentity(
   return { team: null, identity };
 }
 
+async function loadPlayerProfile(playerId: number, fallbackName: string | null): Promise<PlayerProfile> {
+  const warnings: string[] = [];
+
+  const seedGamesResult = await Promise.allSettled([
+    apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, athleteId: playerId }),
+  ]);
+
+  const seedGames = seedGamesResult[0].status === "fulfilled" ? seedGamesResult[0].value : [];
+  if (seedGamesResult[0].status === "rejected") {
+    warnings.push(`Game log seed unavailable: ${String(seedGamesResult[0].reason)}`);
+  }
+
+  const { team, identity } = resolvePlayerIdentity(seedGames, playerId, fallbackName);
+  if (!team) {
+    warnings.push("Unable to determine player team.");
+    return { seasonStats: null, shootingStats: null, bio: null, gameStats: [], warnings };
+  }
+
+  const [teamGamesResult, teamPlayersResult, seasonResult, shootingResult, rosterResult] = await Promise.allSettled([
+    apiFetch<Game[]>("/games", { season: SEASON, team }),
+    apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, team }),
+    apiFetch<PlayerSeasonStats[]>("/stats/player/season", { season: SEASON, team }),
+    apiFetch<ShootingSeasonStats[]>("/stats/player/shooting/season", { season: SEASON, team }),
+    apiFetch<TeamRoster[]>("/teams/roster", { season: SEASON, team }),
+  ]);
+
+  const teamGameIds =
+    teamGamesResult.status === "fulfilled" ? new Set(teamGamesResult.value.map((g) => g.id)) : new Set<number>();
+  if (teamGamesResult.status === "rejected") warnings.push(`Team games unavailable: ${String(teamGamesResult.reason)}`);
+
+  const gameStats =
+    teamPlayersResult.status === "fulfilled"
+      ? teamPlayersResult.value.filter((game) => !teamGameIds.size || teamGameIds.has(game.gameId))
+      : [];
+  if (teamPlayersResult.status === "rejected") warnings.push(`Team player games unavailable: ${String(teamPlayersResult.reason)}`);
+
+  const seasonStats =
+    seasonResult.status === "fulfilled"
+      ? seasonResult.value.find((row) => identity.athleteIds.has(row.athleteId)) ??
+        seasonResult.value.find((row) => identity.athleteSourceIds.has(row.athleteSourceId)) ??
+        seasonResult.value.find((row) => identity.names.has(normalizeName(row.name))) ??
+        null
+      : null;
+  if (seasonResult.status === "rejected") warnings.push(`Season stats unavailable: ${String(seasonResult.reason)}`);
+
+  const shootingStats =
+    shootingResult.status === "fulfilled"
+      ? shootingResult.value.find((row) => (row.athleteId != null ? identity.athleteIds.has(row.athleteId) : false)) ??
+        shootingResult.value.find((row) => identity.names.has(normalizeName(row.athleteName))) ??
+        null
+      : null;
+  if (shootingResult.status === "rejected") warnings.push(`Shooting stats unavailable: ${String(shootingResult.reason)}`);
+
+  const rosterPlayers = rosterResult.status === "fulfilled" ? rosterResult.value[0]?.players ?? [] : [];
+  const bio =
+    rosterPlayers.find((player) => identity.athleteIds.has(player.id)) ??
+    rosterPlayers.find((player) => identity.athleteSourceIds.has(player.sourceId)) ??
+    rosterPlayers.find((player) => identity.names.has(normalizeName(player.name))) ??
+    null;
+  if (rosterResult.status === "rejected") warnings.push(`Roster bio unavailable: ${String(rosterResult.reason)}`);
+
+  return { seasonStats, shootingStats, bio, gameStats, warnings };
+}
+
 export default function PlayerDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -79,12 +138,15 @@ export default function PlayerDetailPage() {
 
   const playerId = Number(params.id);
   const fallbackName = searchParams.get("name");
+  const compareId = Number(searchParams.get("compareId"));
 
   const [activeTab, setActiveTab] = useState<PlayerTab>("Season Stats");
   const [seasonStats, setSeasonStats] = useState<PlayerSeasonStats | null>(null);
   const [gameStats, setGameStats] = useState<GamePlayerStats[]>([]);
   const [shootingStats, setShootingStats] = useState<ShootingSeasonStats | null>(null);
   const [bio, setBio] = useState<TeamRoster["players"][number] | null>(null);
+  const [compareStats, setCompareStats] = useState<PlayerSeasonStats | null>(null);
+  const [compareIdInput, setCompareIdInput] = useState<string>(searchParams.get("compareId") ?? "");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -103,120 +165,48 @@ export default function PlayerDetailPage() {
       setError(null);
       setWarnings([]);
 
-      const nextWarnings: string[] = [];
-
-      const gamesResult = await Promise.allSettled([
-        apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, athleteId: playerId }),
-      ]);
-
+      const primary = await loadPlayerProfile(playerId, fallbackName);
       if (cancelled) return;
 
-      const gameLogValue = gamesResult[0];
-      let resolvedGames: GamePlayerStats[] = [];
-      if (gameLogValue.status === "fulfilled") {
-        resolvedGames = gameLogValue.value;
-        setGameStats(resolvedGames);
-      } else {
-        setGameStats([]);
-        nextWarnings.push(`Game log unavailable: ${String(gameLogValue.reason)}`);
-      }
+      setSeasonStats(primary.seasonStats);
+      setGameStats(primary.gameStats);
+      setShootingStats(primary.shootingStats);
+      setBio(primary.bio);
 
-      const { team: detectedTeam, identity } = resolvePlayerIdentity(resolvedGames, playerId, fallbackName);
-
-      if (!detectedTeam) {
-        setSeasonStats(null);
-        setShootingStats(null);
-        setBio(null);
-        if (!resolvedGames.length) {
-          setError("Unable to load player details");
-        } else {
-          nextWarnings.push("Unable to determine player team for season and shooting stats.");
-        }
-        setWarnings(nextWarnings);
-        setLoading(false);
-        return;
-      }
-
-      const teamResults = await Promise.allSettled([
-        apiFetch<PlayerSeasonStats[]>("/stats/player/season", { season: SEASON, team: detectedTeam }),
-        apiFetch<ShootingSeasonStats[]>("/stats/player/shooting/season", { season: SEASON, team: detectedTeam }),
-        apiFetch<TeamRoster[]>("/teams/roster", { season: SEASON, team: detectedTeam }),
-      ]);
-
-      if (cancelled) return;
-
-      const seasonResult = teamResults[0];
-      let matchedSeasonStats: PlayerSeasonStats | null = null;
-      if (seasonResult.status === "fulfilled") {
-        matchedSeasonStats =
-          seasonResult.value.find((row) => identity.athleteIds.has(row.athleteId)) ??
-          seasonResult.value.find((row) => identity.athleteSourceIds.has(row.athleteSourceId)) ??
-          seasonResult.value.find((row) => identity.names.has(normalizeName(row.name))) ??
-          null;
-        setSeasonStats(matchedSeasonStats);
-        if (!matchedSeasonStats) {
-          nextWarnings.push(`Season stats missing for athleteId=${playerId} on ${detectedTeam}.`);
+      if (Number.isFinite(compareId) && compareId > 0 && compareId !== playerId) {
+        const compare = await loadPlayerProfile(compareId, null);
+        if (!cancelled) {
+          setCompareStats(compare.seasonStats);
+          primary.warnings.push(...compare.warnings.map((w) => `Compare player: ${w}`));
         }
       } else {
-        setSeasonStats(null);
-        nextWarnings.push(`Season stats unavailable: ${String(seasonResult.reason)}`);
+        setCompareStats(null);
       }
 
-      const shootingResult = teamResults[1];
-      let matchedShootingStats: ShootingSeasonStats | null = null;
-      if (shootingResult.status === "fulfilled") {
-        matchedShootingStats =
-          shootingResult.value.find((row) => (row.athleteId != null ? identity.athleteIds.has(row.athleteId) : false)) ??
-          shootingResult.value.find((row) => identity.names.has(normalizeName(row.athleteName))) ??
-          null;
-        setShootingStats(matchedShootingStats);
-        if (!matchedShootingStats) {
-          nextWarnings.push(`Shooting stats missing for athleteId=${playerId} on ${detectedTeam}.`);
-        }
-      } else {
-        setShootingStats(null);
-        nextWarnings.push(`Shooting stats unavailable: ${String(shootingResult.reason)}`);
-      }
-
-      const rosterResult = teamResults[2];
-      if (rosterResult.status === "fulfilled") {
-        const rosterPlayers = rosterResult.value[0]?.players ?? [];
-        setBio(
-          rosterPlayers.find((player) => identity.athleteIds.has(player.id)) ??
-            rosterPlayers.find((player) => identity.athleteSourceIds.has(player.sourceId)) ??
-            rosterPlayers.find((player) => identity.names.has(normalizeName(player.name))) ??
-            null
-        );
-      } else {
-        setBio(null);
-        nextWarnings.push(`Roster bio unavailable: ${String(rosterResult.reason)}`);
-      }
-
-      if (!matchedSeasonStats && !matchedShootingStats && !resolvedGames.length) {
+      if (!primary.seasonStats && !primary.shootingStats && !primary.gameStats.length) {
         setError("Unable to load player details");
       }
 
-      setWarnings(nextWarnings);
+      setWarnings(primary.warnings);
       setLoading(false);
     }
 
     void load();
-
     return () => {
       cancelled = true;
     };
-  }, [fallbackName, playerId]);
+  }, [compareId, fallbackName, playerId]);
 
   const name = seasonStats?.name ?? shootingStats?.athleteName ?? fallbackName ?? `Player #${playerId}`;
-  const ppg = seasonStats ? perGame(seasonStats.points, seasonStats.games) : "—";
+  const netRating = seasonStats ? dec(seasonStats.netRating, 1) : "—";
 
   const perGameStats = useMemo(
     () => [
       { label: "Games/Starts", value: seasonStats ? `${seasonStats.games}/${seasonStats.starts}` : "—" },
-      { label: "Minutes/G", value: seasonStats ? perGame(seasonStats.minutes, seasonStats.games) : "—", accent: true },
-      { label: "PPG", value: seasonStats ? perGame(seasonStats.points, seasonStats.games) : "—", accent: true },
-      { label: "RPG", value: seasonStats ? perGame(seasonStats.rebounds.total, seasonStats.games) : "—", accent: true },
-      { label: "APG", value: seasonStats ? perGame(seasonStats.assists, seasonStats.games) : "—", accent: true },
+      { label: "Minutes/G", value: seasonStats ? perGame(seasonStats.minutes, seasonStats.games) : "—" },
+      { label: "PPG", value: seasonStats ? perGame(seasonStats.points, seasonStats.games) : "—" },
+      { label: "RPG", value: seasonStats ? perGame(seasonStats.rebounds.total, seasonStats.games) : "—" },
+      { label: "APG", value: seasonStats ? perGame(seasonStats.assists, seasonStats.games) : "—" },
       { label: "SPG", value: seasonStats ? perGame(seasonStats.steals, seasonStats.games) : "—" },
       { label: "BPG", value: seasonStats ? perGame(seasonStats.blocks, seasonStats.games) : "—" },
       { label: "TO/G", value: seasonStats ? perGame(seasonStats.turnovers, seasonStats.games) : "—" },
@@ -268,48 +258,69 @@ export default function PlayerDetailPage() {
           </div>
 
           <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 px-5 py-4 text-right">
-            <p className="text-xs uppercase tracking-wide text-zinc-300">PPG</p>
-            <p className="font-mono text-5xl text-amber-300">{ppg}</p>
+            <p className="text-xs uppercase tracking-wide text-zinc-300">Net Rating</p>
+            <p className="font-mono text-5xl text-amber-300">{netRating}</p>
           </div>
         </div>
       </header>
 
       {warnings.length > 0 ? <ErrorMsg message={warnings.join(" • ")} /> : null}
 
+      <section className="rounded-xl border border-white/10 bg-zinc-900/60 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm text-zinc-300">Compare player ID:</p>
+          <input
+            className="rounded border border-white/15 bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
+            value={compareIdInput}
+            onChange={(e) => setCompareIdInput(e.target.value)}
+            placeholder="e.g. 4286616"
+          />
+          <button
+            type="button"
+            onClick={() => router.push(`/player/${playerId}?name=${encodeURIComponent(name)}&compareId=${encodeURIComponent(compareIdInput.trim())}`)}
+            className="rounded border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-sm text-amber-300"
+          >
+            Compare
+          </button>
+        </div>
+      </section>
+
       <Tabs tabs={["Season Stats", "Game Log", "Shooting"]} active={activeTab} onChange={(tab) => setActiveTab(tab as PlayerTab)} />
 
       {activeTab === "Season Stats" ? (
         <section className="space-y-5">
+          {compareStats ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <CompareCard title={name} stats={seasonStats} />
+              <CompareCard title={compareStats.name} stats={compareStats} />
+            </div>
+          ) : null}
+
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {perGameStats.map((item) => (
-              <StatPill key={item.label} label={item.label} value={item.value} accent={item.accent} />
+              <StatPill key={item.label} label={item.label} value={item.value} />
             ))}
           </div>
 
           <div className="rounded-xl border border-white/10 bg-zinc-900/60 p-4">
             <h2 className="mb-3 text-sm uppercase tracking-wide text-zinc-400">Advanced Metrics</h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              <StatPill label="Usage" value={pct(seasonStats?.usage)} accent />
+              <StatPill label="Usage" value={pct(seasonStats?.usage)} />
               <StatPill label="Off Rating" value={dec(seasonStats?.offensiveRating, 1)} />
               <StatPill label="Def Rating" value={dec(seasonStats?.defensiveRating, 1)} />
-              <StatPill label="Net Rating" value={dec(seasonStats?.netRating, 1)} accent />
+              <StatPill label="Net Rating" value={dec(seasonStats?.netRating, 1)} />
               <StatPill label="eFG%" value={pct(seasonStats?.effectiveFieldGoalPct)} />
-              <StatPill label="TS%" value={pct(seasonStats?.trueShootingPct)} accent />
+              <StatPill label="TS%" value={pct(seasonStats?.trueShootingPct)} />
               <StatPill label="AST/TO" value={dec(seasonStats?.assistsTurnoverRatio, 2)} />
               <StatPill label="FT Rate" value={pct(seasonStats?.freeThrowRate)} />
               <StatPill label="OREB%" value={pct(seasonStats?.offensiveReboundPct)} />
-              <StatPill label="PORPAG" value={dec(seasonStats?.PORPAG, 2)} accent />
+              <StatPill label="PORPAG" value={dec(seasonStats?.PORPAG, 2)} />
             </div>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
             <SplitCard label="FG" made={seasonStats?.fieldGoals.made} attempted={seasonStats?.fieldGoals.attempted} value={seasonStats?.fieldGoals.pct} />
-            <SplitCard
-              label="3PT"
-              made={seasonStats?.threePointFieldGoals.made}
-              attempted={seasonStats?.threePointFieldGoals.attempted}
-              value={seasonStats?.threePointFieldGoals.pct}
-            />
+            <SplitCard label="3PT" made={seasonStats?.threePointFieldGoals.made} attempted={seasonStats?.threePointFieldGoals.attempted} value={seasonStats?.threePointFieldGoals.pct} />
             <SplitCard label="FT" made={seasonStats?.freeThrows.made} attempted={seasonStats?.freeThrows.attempted} value={seasonStats?.freeThrows.pct} />
           </div>
 
@@ -330,27 +341,29 @@ export default function PlayerDetailPage() {
       {activeTab === "Game Log" ? <PlayerGameLog gameStats={gameStats} playerId={playerId} onGameClick={(gameId) => router.push(`/game/${gameId}`)} /> : null}
 
       {activeTab === "Shooting" ? (
-        shootingStats ? (
-          <ShootingBreakdown stats={shootingStats} />
-        ) : (
-          <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-5 text-sm text-zinc-400">No shooting breakdown available.</div>
-        )
+        shootingStats ? <ShootingBreakdown stats={shootingStats} /> : <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-5 text-sm text-zinc-400">No shooting breakdown available.</div>
       ) : null}
     </div>
   );
 }
 
-function SplitCard({
-  label,
-  made,
-  attempted,
-  value,
-}: {
-  label: string;
-  made: number | undefined;
-  attempted: number | undefined;
-  value: number | undefined;
-}) {
+function CompareCard({ title, stats }: { title: string; stats: PlayerSeasonStats | null }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-zinc-900/60 p-4">
+      <p className="font-semibold text-zinc-100">{title}</p>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-sm text-zinc-300">
+        <span>PPG: {stats ? perGame(stats.points, stats.games) : "—"}</span>
+        <span>RPG: {stats ? perGame(stats.rebounds.total, stats.games) : "—"}</span>
+        <span>APG: {stats ? perGame(stats.assists, stats.games) : "—"}</span>
+        <span>Usage: {pct(stats?.usage)}</span>
+        <span>TS%: {pct(stats?.trueShootingPct)}</span>
+        <span>Net: {dec(stats?.netRating, 1)}</span>
+      </div>
+    </div>
+  );
+}
+
+function SplitCard({ label, made, attempted, value }: { label: string; made: number | undefined; attempted: number | undefined; value: number | undefined }) {
   return (
     <div className="rounded-xl border border-white/10 bg-zinc-900/60 p-4">
       <p className="text-xs uppercase tracking-wide text-zinc-400">{label}</p>
