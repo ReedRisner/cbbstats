@@ -41,37 +41,36 @@ export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
 
     if (!shotPlays.length) return [];
 
-    const transformed = shotPlays.map((play) => {
+    const xs = shotPlays.map((play) => play.shotInfo!.location.x);
+    const ys = shotPlays.map((play) => play.shotInfo!.location.y);
+    const xSpan = Math.max(...xs) - Math.min(...xs);
+    const ySpan = Math.max(...ys) - Math.min(...ys);
+
+    // The larger axis is typically full-court length (~94), the smaller is width (~50).
+    const xIsLengthAxis = xSpan >= ySpan;
+    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+    return shotPlays.map((play) => {
       const rawX = play.shotInfo!.location.x;
       const rawY = play.shotInfo!.location.y;
+      const lengthCoord = xIsLengthAxis ? rawX : rawY;
+      const widthCoord = xIsLengthAxis ? rawY : rawX;
+
+      const normalizedLength = clamp(Math.min(lengthCoord, 94 - lengthCoord), 0, 47);
+      const normalizedWidth = clamp(widthCoord, 0, 50);
+
       return {
-        play,
-        x: rawX > 47 ? 94 - rawX : rawX,
-        y: rawY,
-      };
-    });
-
-    const minX = Math.min(...transformed.map((shot) => shot.x));
-    const maxX = Math.max(...transformed.map((shot) => shot.x));
-    const minY = Math.min(...transformed.map((shot) => shot.y));
-    const maxY = Math.max(...transformed.map((shot) => shot.y));
-
-    const safeScale = (value: number, min: number, max: number, outputMax: number) => {
-      if (max <= min) return outputMax / 2;
-      return ((value - min) / (max - min)) * outputMax;
-    };
-
-    return transformed.map(({ play, x, y }) => ({
       id: play.id,
       isHomeTeam: play.isHomeTeam,
       team: play.team,
       made: play.shotInfo!.made,
-      x: Math.max(0, Math.min(470, safeScale(x, minX, maxX, 470))),
-      y: Math.max(0, Math.min(500, safeScale(y, minY, maxY, 500))),
+      x: (normalizedWidth / 50) * 470,
+      y: (normalizedLength / 47) * 500,
       player: play.shotInfo!.shooter?.name ?? "Unknown",
       rangeBucket: toRangeBucket(play.shotInfo!.range),
       rawRange: play.shotInfo!.range ?? "Unknown",
-    }));
+      };
+    });
   }, [plays]);
 
   const players = useMemo(() => {
@@ -154,7 +153,7 @@ export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
             <circle
               key={shot.id}
               cx={shot.x}
-              cy={500 - shot.y}
+              cy={shot.y}
               r={4}
               fill={shot.made ? "#4ade80" : "none"}
               stroke={shot.made ? "#4ade80" : "#f87171"}
