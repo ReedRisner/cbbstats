@@ -5,7 +5,7 @@ import { pct } from "@/lib/utils";
 export interface BoxScoreProps {
   teamData: GamePlayerStats;
   teamTotals?: TeamGameStatsBlock;
-  onPlayerClick: (id: number, name: string) => void;
+  onPlayerClick: (athleteId: number, athleteSourceId: string, name: string, team: string) => void;
 }
 
 type BoxScoreSortKey = "name" | "minutes" | "points" | "rebounds" | "assists" | "steals" | "blocks" | "turnovers";
@@ -93,7 +93,7 @@ export function BoxScore({ teamData, teamTotals, onPlayerClick }: BoxScoreProps)
                 <td className="sticky left-0 z-10 bg-zinc-900/95 px-2 py-2 font-medium">
                   <button
                     type="button"
-                    onClick={() => onPlayerClick(player.athleteId, player.name)}
+                    onClick={() => onPlayerClick(player.athleteId, player.athleteSourceId, player.name, teamData.team)}
                     className={`text-left hover:text-amber-300 ${player.starter ? "text-zinc-100" : "text-zinc-400"}`}
                   >
                     {player.name}
