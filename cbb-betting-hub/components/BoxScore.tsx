@@ -76,7 +76,7 @@ export function BoxScore({ teamData, teamTotals, onPlayerClick }: BoxScoreProps)
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-[1600px] w-full text-left text-sm">
+        <table className="w-full table-fixed text-left text-sm">
           <thead>
             <tr className="border-b border-white/10 text-xs uppercase tracking-wide text-zinc-400">
               {sortableCols.map((col) => (
@@ -91,19 +91,7 @@ export function BoxScore({ teamData, teamTotals, onPlayerClick }: BoxScoreProps)
               <th className="px-2 py-2 font-medium">3PT</th>
               <th className="px-2 py-2 font-medium">FT</th>
               <th className="px-2 py-2 font-medium">PF</th>
-              {showAdvanced ? (
-                <>
-                  <th className="px-2 py-2 font-medium">Off Rtg</th>
-                  <th className="px-2 py-2 font-medium">Def Rtg</th>
-                  <th className="px-2 py-2 font-medium">Net Rtg</th>
-                  <th className="px-2 py-2 font-medium">Usage</th>
-                  <th className="px-2 py-2 font-medium">eFG%</th>
-                  <th className="px-2 py-2 font-medium">TS%</th>
-                  <th className="px-2 py-2 font-medium">AST/TO</th>
-                  <th className="px-2 py-2 font-medium">FT Rate</th>
-                  <th className="px-2 py-2 font-medium">OREB%</th>
-                </>
-              ) : null}
+              <th className="px-2 py-2 font-medium">GameScore</th>
             </tr>
           </thead>
           <tbody>
@@ -129,19 +117,7 @@ export function BoxScore({ teamData, teamTotals, onPlayerClick }: BoxScoreProps)
                 <td className="px-2 py-2 font-mono">{player.threePointFieldGoals.made}-{player.threePointFieldGoals.attempted}</td>
                 <td className="px-2 py-2 font-mono">{player.freeThrows.made}-{player.freeThrows.attempted}</td>
                 <td className="px-2 py-2 font-mono">{player.fouls}</td>
-                {showAdvanced ? (
-                  <>
-                    <td className="px-2 py-2 font-mono">{dec(player.offensiveRating, 1)}</td>
-                    <td className="px-2 py-2 font-mono">{dec(player.defensiveRating, 1)}</td>
-                    <td className="px-2 py-2 font-mono">{dec(player.netRating, 1)}</td>
-                    <td className="px-2 py-2 font-mono">{pct(player.usage)}</td>
-                    <td className="px-2 py-2 font-mono">{pct(player.effectiveFieldGoalPct)}</td>
-                    <td className="px-2 py-2 font-mono">{pct(player.trueShootingPct)}</td>
-                    <td className="px-2 py-2 font-mono">{dec(player.assistsTurnoverRatio, 2)}</td>
-                    <td className="px-2 py-2 font-mono">{pct(player.freeThrowRate)}</td>
-                    <td className="px-2 py-2 font-mono">{pct(player.offensiveReboundPct)}</td>
-                  </>
-                ) : null}
+                <td className="px-2 py-2 font-mono">{dec(player.gameScore, 1)}</td>
               </tr>
             ))}
             {teamTotals && (
@@ -158,15 +134,6 @@ export function BoxScore({ teamData, teamTotals, onPlayerClick }: BoxScoreProps)
                 <td className="px-2 py-2 font-mono">{teamTotals.threePointFieldGoals.made}-{teamTotals.threePointFieldGoals.attempted} ({pct(teamTotals.threePointFieldGoals.pct)})</td>
                 <td className="px-2 py-2 font-mono">{teamTotals.freeThrows.made}-{teamTotals.freeThrows.attempted} ({pct(teamTotals.freeThrows.pct)})</td>
                 <td className="px-2 py-2 font-mono">{teamTotals.fouls.total}</td>
-                <td className="px-2 py-2 font-mono">—</td>
-                <td className="px-2 py-2 font-mono">—</td>
-                <td className="px-2 py-2 font-mono">—</td>
-                <td className="px-2 py-2 font-mono">—</td>
-                <td className="px-2 py-2 font-mono">—</td>
-                <td className="px-2 py-2 font-mono">—</td>
-                <td className="px-2 py-2 font-mono">—</td>
-                <td className="px-2 py-2 font-mono">—</td>
-                <td className="px-2 py-2 font-mono">—</td>
                 <td className="px-2 py-2 font-mono">—</td>
               </tr>
             )}
