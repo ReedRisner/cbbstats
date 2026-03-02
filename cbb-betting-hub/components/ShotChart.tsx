@@ -31,6 +31,17 @@ function toRangeBucket(range: string | undefined): Exclude<RangeFilter, "all"> {
   return "mid";
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalizeWidth(rawWidth: number): number {
+  // Handle both 0..50 and -25..25 coordinate systems.
+  if (rawWidth < 0) return clamp(rawWidth + 25, 0, 50);
+  if (rawWidth > 50) return clamp(rawWidth / 2, 0, 50);
+  return clamp(rawWidth, 0, 50);
+}
+
 export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
   const [teamFilter, setTeamFilter] = useState<TeamFilter>("both");
   const [rangeFilter, setRangeFilter] = useState<RangeFilter>("all");
@@ -45,10 +56,13 @@ export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
     const ys = shotPlays.map((play) => play.shotInfo!.location.y);
     const xSpan = Math.max(...xs) - Math.min(...xs);
     const ySpan = Math.max(...ys) - Math.min(...ys);
+    const maxX = Math.max(...xs);
+    const maxY = Math.max(...ys);
 
-    // The larger axis is typically full-court length (~94), the smaller is width (~50).
-    const xIsLengthAxis = xSpan >= ySpan;
-    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+    // Prefer known full-court axis (typically > 60 in either feet or normalized 0..100 units).
+    const xLooksLikeLength = maxX > 60;
+    const yLooksLikeLength = maxY > 60;
+    const xIsLengthAxis = xLooksLikeLength && !yLooksLikeLength ? true : !xLooksLikeLength && yLooksLikeLength ? false : xSpan >= ySpan;
 
     return shotPlays.map((play) => {
       const rawX = play.shotInfo!.location.x;
@@ -56,19 +70,23 @@ export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
       const lengthCoord = xIsLengthAxis ? rawX : rawY;
       const widthCoord = xIsLengthAxis ? rawY : rawX;
 
-      const normalizedLength = clamp(Math.min(lengthCoord, 94 - lengthCoord), 0, 47);
-      const normalizedWidth = clamp(widthCoord, 0, 50);
+      const fullCourtLength = Math.max(maxX, maxY) > 97 ? 100 : 94;
+      const halfCourtLength = fullCourtLength / 2;
+
+      const foldedLength = Math.min(lengthCoord, fullCourtLength - lengthCoord);
+      const normalizedLength = clamp((foldedLength / halfCourtLength) * 47, 0, 47);
+      const normalizedWidth = normalizeWidth(widthCoord);
 
       return {
-      id: play.id,
-      isHomeTeam: play.isHomeTeam,
-      team: play.team,
-      made: play.shotInfo!.made,
-      x: (normalizedWidth / 50) * 470,
-      y: (normalizedLength / 47) * 500,
-      player: play.shotInfo!.shooter?.name ?? "Unknown",
-      rangeBucket: toRangeBucket(play.shotInfo!.range),
-      rawRange: play.shotInfo!.range ?? "Unknown",
+        id: play.id,
+        isHomeTeam: play.isHomeTeam,
+        team: play.team,
+        made: play.shotInfo!.made,
+        x: (normalizedWidth / 50) * 470,
+        y: (normalizedLength / 47) * 500,
+        player: play.shotInfo!.shooter?.name ?? "Unknown",
+        rangeBucket: toRangeBucket(play.shotInfo!.range),
+        rawRange: play.shotInfo!.range ?? "Unknown",
       };
     });
   }, [plays]);
