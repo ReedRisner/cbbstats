@@ -32,12 +32,22 @@ function toHex(color: string | null | undefined): string {
   return `#${raw}`;
 }
 
-function findTeamByName(teams: Team[], routeName: string): Team | null {
+function namesMatch(candidate: string | null | undefined, routeName: string): boolean {
+  const normalizedCandidate = normalizeName(candidate);
   const normalizedRoute = normalizeName(routeName);
+  if (!normalizedCandidate || !normalizedRoute) return false;
+  return (
+    normalizedCandidate === normalizedRoute ||
+    normalizedCandidate.includes(normalizedRoute) ||
+    normalizedRoute.includes(normalizedCandidate)
+  );
+}
+
+function findTeamByName(teams: Team[], routeName: string): Team | null {
   return (
     teams.find((entry) => {
       const candidates = [entry.displayName, entry.school, entry.shortDisplayName, entry.abbreviation];
-      return candidates.some((candidate) => normalizeName(candidate) === normalizedRoute);
+      return candidates.some((candidate) => namesMatch(candidate, routeName));
     }) ?? teams[0] ?? null
   );
 }
@@ -108,10 +118,13 @@ export default function TeamDetailPage() {
         shootingRows[0] ??
         null;
 
+      const resolvedTeamId = matchedTeam?.id ?? matchedTeamStats?.teamId ?? matchedRoster?.teamId ?? matchedShooting?.teamId;
+      const resolvedTeamLabel = matchedTeam?.displayName ?? matchedTeam?.school ?? matchedTeamStats?.team ?? matchedRoster?.team ?? teamName;
+
       const matchedAdjusted =
-        adjustedRows.find((row) => matchedTeam && row.teamId === matchedTeam.id) ??
-        adjustedRows.find((row) => normalizeName(row.team) === normalizedRouteName) ??
-        adjustedRows[0] ??
+        adjustedRows.find((row) => resolvedTeamId != null && row.teamId === resolvedTeamId) ??
+        adjustedRows.find((row) => namesMatch(row.team, resolvedTeamLabel)) ??
+        adjustedRows.find((row) => namesMatch(row.team, teamName)) ??
         null;
 
       const resolvedTeamNames = new Set(
