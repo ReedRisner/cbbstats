@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ErrorMsg } from "@/components/ui/ErrorMsg";
-import { FourFactorsBar } from "@/components/ui/FourFactorsBar";
 import { Loader } from "@/components/ui/Loader";
 import { StatPill } from "@/components/ui/StatPill";
 import { Tabs } from "@/components/ui/Tabs";
@@ -22,6 +21,10 @@ interface RosterRow {
   seasonStats: PlayerSeasonStats | null;
 }
 
+function normalizeName(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
 function toHex(color: string | null | undefined): string {
   const raw = (color ?? "").trim();
   if (!raw) return "#f59e0b";
@@ -29,10 +32,21 @@ function toHex(color: string | null | undefined): string {
   return `#${raw}`;
 }
 
+function findTeamByName(teams: Team[], routeName: string): Team | null {
+  const normalizedRoute = normalizeName(routeName);
+  return (
+    teams.find((entry) => {
+      const candidates = [entry.displayName, entry.school, entry.shortDisplayName, entry.abbreviation];
+      return candidates.some((candidate) => normalizeName(candidate) === normalizedRoute);
+    }) ?? teams[0] ?? null
+  );
+}
+
 export default function TeamDetailPage() {
   const params = useParams<{ name: string }>();
   const router = useRouter();
   const teamName = decodeURIComponent(params.name ?? "");
+  const normalizedRouteName = normalizeName(teamName);
 
   const [activeTab, setActiveTab] = useState<TeamTab>("Overview");
   const [team, setTeam] = useState<Team | null>(null);
@@ -67,28 +81,66 @@ export default function TeamDetailPage() {
 
       if (cancelled) return;
 
-      const teamRes = results[0];
-      const teamStatsRes = results[1];
-      const rosterRes = results[2];
-      const shootingRes = results[3];
-      const adjustedRes = results[4];
-      const gamesRes = results[5];
-      const playerStatsRes = results[6];
+      const teams = results[0].status === "fulfilled" ? results[0].value : [];
+      const teamStatRows = results[1].status === "fulfilled" ? results[1].value : [];
+      const rosterRows = results[2].status === "fulfilled" ? results[2].value : [];
+      const shootingRows = results[3].status === "fulfilled" ? results[3].value : [];
+      const adjustedRows = results[4].status === "fulfilled" ? results[4].value : [];
+      const gamesRows = results[5].status === "fulfilled" ? results[5].value : [];
+      const playerRows = results[6].status === "fulfilled" ? results[6].value : [];
 
-      setTeam(teamRes.status === "fulfilled" ? teamRes.value[0] ?? null : null);
-      setTeamStats(teamStatsRes.status === "fulfilled" ? teamStatsRes.value[0] ?? null : null);
-      setRoster(rosterRes.status === "fulfilled" ? rosterRes.value[0] ?? null : null);
-      setShooting(shootingRes.status === "fulfilled" ? shootingRes.value[0] ?? null : null);
-      setAdjusted(adjustedRes.status === "fulfilled" ? adjustedRes.value[0] ?? null : null);
-      setGames(gamesRes.status === "fulfilled" ? gamesRes.value : []);
-      setPlayerStats(playerStatsRes.status === "fulfilled" ? playerStatsRes.value : []);
+      const matchedTeam = findTeamByName(teams, teamName);
+      const matchedTeamStats =
+        teamStatRows.find((row) => matchedTeam && row.teamId === matchedTeam.id) ??
+        teamStatRows.find((row) => normalizeName(row.team) === normalizedRouteName) ??
+        teamStatRows[0] ??
+        null;
 
-      const noCoreData =
-        (teamRes.status !== "fulfilled" || !teamRes.value.length) &&
-        (teamStatsRes.status !== "fulfilled" || !teamStatsRes.value.length) &&
-        (rosterRes.status !== "fulfilled" || !rosterRes.value.length) &&
-        (gamesRes.status !== "fulfilled" || !gamesRes.value.length);
+      const matchedRoster =
+        rosterRows.find((row) => matchedTeam && row.teamId === matchedTeam.id) ??
+        rosterRows.find((row) => normalizeName(row.team) === normalizedRouteName) ??
+        rosterRows[0] ??
+        null;
 
+      const matchedShooting =
+        shootingRows.find((row) => matchedTeam && row.teamId === matchedTeam.id) ??
+        shootingRows.find((row) => normalizeName(row.team) === normalizedRouteName) ??
+        shootingRows[0] ??
+        null;
+
+      const matchedAdjusted =
+        adjustedRows.find((row) => matchedTeam && row.teamId === matchedTeam.id) ??
+        adjustedRows.find((row) => normalizeName(row.team) === normalizedRouteName) ??
+        adjustedRows[0] ??
+        null;
+
+      const resolvedTeamNames = new Set(
+        [
+          matchedTeam?.displayName,
+          matchedTeam?.school,
+          matchedTeam?.shortDisplayName,
+          matchedTeamStats?.team,
+          matchedRoster?.team,
+          matchedAdjusted?.team,
+          teamName,
+        ]
+          .map((entry) => normalizeName(entry))
+          .filter(Boolean)
+      );
+
+      const filteredGames = gamesRows.filter(
+        (game) => resolvedTeamNames.has(normalizeName(game.homeTeam)) || resolvedTeamNames.has(normalizeName(game.awayTeam))
+      );
+
+      setTeam(matchedTeam);
+      setTeamStats(matchedTeamStats);
+      setRoster(matchedRoster);
+      setShooting(matchedShooting);
+      setAdjusted(matchedAdjusted);
+      setGames(filteredGames);
+      setPlayerStats(playerRows);
+
+      const noCoreData = !matchedTeam && !matchedTeamStats && !matchedRoster && !filteredGames.length;
       if (noCoreData) setError("Unable to load team details.");
 
       setLoading(false);
@@ -99,23 +151,23 @@ export default function TeamDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [teamName]);
+  }, [normalizedRouteName, teamName]);
 
   const accentColor = toHex(team?.primaryColor);
 
   const keyStats = useMemo(() => {
     if (!teamStats) return [];
     return [
-      { label: "PPG", value: perGame(teamStats.teamStats.points.total, teamStats.games), accent: true },
+      { label: "PPG", value: perGame(teamStats.teamStats.points.total, teamStats.games) },
       { label: "Opp PPG", value: perGame(teamStats.opponentStats.points.total, teamStats.games) },
-      { label: "Pace", value: dec(teamStats.pace, 1), accent: true },
+      { label: "Pace", value: dec(teamStats.pace, 1) },
       { label: "FG%", value: pct(teamStats.teamStats.fieldGoals.pct) },
       { label: "3PT%", value: pct(teamStats.teamStats.threePointFieldGoals.pct) },
       { label: "FT%", value: pct(teamStats.teamStats.freeThrows.pct) },
       { label: "RPG", value: perGame(teamStats.teamStats.rebounds.total, teamStats.games) },
       { label: "APG", value: perGame(teamStats.teamStats.assists, teamStats.games) },
       { label: "TO/G", value: perGame(teamStats.teamStats.turnovers.total, teamStats.games) },
-      { label: "Rating", value: dec(teamStats.teamStats.rating, 1), accent: true },
+      { label: "Rating", value: dec(teamStats.teamStats.rating, 1) },
     ];
   }, [teamStats]);
 
@@ -180,9 +232,7 @@ export default function TeamDetailPage() {
       const bValue = sortValue(b);
       const direction = sortDirection === "asc" ? 1 : -1;
 
-      if (typeof aValue === "number" && typeof bValue === "number") {
-        return (aValue - bValue) * direction;
-      }
+      if (typeof aValue === "number" && typeof bValue === "number") return (aValue - bValue) * direction;
       return String(aValue).localeCompare(String(bValue)) * direction;
     });
 
@@ -212,7 +262,7 @@ export default function TeamDetailPage() {
   if (loading) return <Loader />;
   if (error) return <ErrorMsg message={error} />;
 
-  const displayName = team?.displayName ?? teamStats?.team ?? teamName;
+  const displayName = team?.displayName ?? teamStats?.team ?? roster?.team ?? adjusted?.team ?? teamName;
 
   const onSort = (key: RosterSortKey) => {
     if (sortKey === key) {
@@ -243,7 +293,7 @@ export default function TeamDetailPage() {
             <div className="space-y-2">
               <h1 className="font-heading text-4xl text-zinc-100">{displayName}</h1>
               <p className="text-sm text-zinc-300">
-                {team?.conference ?? teamStats?.conference ?? "—"} • {team?.mascot || "—"}
+                {team?.conference ?? teamStats?.conference ?? roster?.conference ?? adjusted?.conference ?? "—"} • {team?.mascot || "—"}
               </p>
               <p className="text-sm text-zinc-400">
                 {team?.currentVenue || "Venue —"}
@@ -288,12 +338,35 @@ export default function TeamDetailPage() {
       {activeTab === "Overview" && (
         <section className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            {keyStats.length ? keyStats.map((stat) => <StatPill key={stat.label} label={stat.label} value={stat.value} accent={stat.accent} />) : <p className="text-zinc-400">No season stats available.</p>}
+            {keyStats.length ? keyStats.map((stat) => <StatPill key={stat.label} label={stat.label} value={stat.value} />) : <p className="text-zinc-400">No season stats available.</p>}
           </div>
 
-          <div>
-            <h2 className="mb-2 text-sm uppercase tracking-wide text-zinc-400">Four Factors (Team vs Opponent)</h2>
-            {fourFactors.length ? <FourFactorsBar factors={fourFactors} /> : <p className="text-zinc-400">No four factors data available.</p>}
+          <div className="rounded-xl border border-white/10 bg-zinc-900/70 p-4">
+            <h2 className="mb-3 text-sm uppercase tracking-wide text-zinc-400">Four Factors (Team vs Opponent)</h2>
+            {fourFactors.length ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="border-b border-white/10 text-zinc-400">
+                    <tr>
+                      <th className="px-2 py-2 text-left">Factor</th>
+                      <th className="px-2 py-2 text-right">Team</th>
+                      <th className="px-2 py-2 text-right">Opponent</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fourFactors.map((factor) => (
+                      <tr key={factor.label} className="border-b border-white/5 text-zinc-200">
+                        <td className="px-2 py-2">{factor.label}</td>
+                        <td className="px-2 py-2 text-right font-mono">{pct(factor.team)}</td>
+                        <td className="px-2 py-2 text-right font-mono">{pct(factor.opponent)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-zinc-400">No four factors data available.</p>
+            )}
           </div>
         </section>
       )}
@@ -353,12 +426,12 @@ export default function TeamDetailPage() {
       {activeTab === "Schedule" && (
         <section className="space-y-2">
           {sortedGames.map((game) => {
-            const isHomeTeam = game.homeTeam.toLowerCase() === teamName.toLowerCase();
+            const isHomeTeam = normalizeName(game.homeTeam) === normalizedRouteName;
             const opponent = isHomeTeam ? game.awayTeam : game.homeTeam;
             const teamScore = isHomeTeam ? game.homePoints : game.awayPoints;
             const oppScore = isHomeTeam ? game.awayPoints : game.homePoints;
-            const hasFinal = teamScore != null && oppScore != null;
-            const won = hasFinal ? teamScore > oppScore : null;
+            const isUnplayed = teamScore == null || oppScore == null || (teamScore === 0 && oppScore === 0);
+            const won = !isUnplayed ? teamScore > oppScore : null;
 
             return (
               <Link
@@ -382,7 +455,7 @@ export default function TeamDetailPage() {
                   ) : (
                     <span className="rounded bg-zinc-700/50 px-2 py-1 text-xs text-zinc-300">TBD</span>
                   )}
-                  <p className="font-mono text-zinc-100">{hasFinal ? `${teamScore}-${oppScore}` : "—"}</p>
+                  <p className="font-mono text-zinc-100">{isUnplayed ? "TBD" : `${teamScore}-${oppScore}`}</p>
                 </div>
               </Link>
             );
@@ -396,7 +469,7 @@ export default function TeamDetailPage() {
           {shooting ? (
             <>
               <div className="grid gap-3 sm:grid-cols-3">
-                <StatPill label="Tracked Shots" value={shooting.trackedShots} accent />
+                <StatPill label="Tracked Shots" value={shooting.trackedShots} />
                 <StatPill label="Assisted %" value={pct(shooting.assistedPct)} />
                 <StatPill label="FT Rate" value={pct(shooting.freeThrowRate)} />
               </div>
@@ -418,18 +491,6 @@ export default function TeamDetailPage() {
                     </div>
                   );
                 })}
-              </div>
-
-              <div className="rounded-xl border border-white/10 bg-zinc-900/70 p-4">
-                <h3 className="mb-2 text-sm uppercase tracking-wide text-zinc-400">Attempts Breakdown</h3>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                  {Object.entries(shooting.attemptsBreakdown).map(([key, value]) => (
-                    <div key={key} className="rounded-lg border border-white/10 bg-zinc-950/50 px-3 py-2">
-                      <p className="text-xs uppercase text-zinc-400">{key}</p>
-                      <p className="font-mono text-zinc-100">{value}</p>
-                    </div>
-                  ))}
-                </div>
               </div>
             </>
           ) : (
