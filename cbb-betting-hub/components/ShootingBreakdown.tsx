@@ -98,17 +98,6 @@ export function ShootingBreakdown({ stats }: ShootingBreakdownProps) {
           );
         })}
       </div>
-
-      <div className="rounded-xl border border-white/10 bg-zinc-900/60 p-4">
-        <p className="text-sm uppercase tracking-wide text-zinc-400">Attempts Breakdown</p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          <MetricCard label="Dunks" value={dec(stats.attemptsBreakdown.dunks, 0)} />
-          <MetricCard label="Layups" value={dec(stats.attemptsBreakdown.layups, 0)} />
-          <MetricCard label="Tip-Ins" value={dec(stats.attemptsBreakdown.tipIns, 0)} />
-          <MetricCard label="2PT Jumpers" value={dec(stats.attemptsBreakdown.twoPointJumpers, 0)} />
-          <MetricCard label="3PT Jumpers" value={dec(stats.attemptsBreakdown.threePointJumpers, 0)} />
-        </div>
-      </div>
     </div>
   );
 }
