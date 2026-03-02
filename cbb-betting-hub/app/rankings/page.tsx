@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { EfficiencyScatter } from "@/components/EfficiencyScatter";
 import { Loader } from "@/components/ui/Loader";
 import { Tabs } from "@/components/ui/Tabs";
 import { apiFetch } from "@/lib/api";
@@ -9,11 +11,12 @@ import { AdjustedRating, EloRating, Ranking } from "@/lib/types";
 import { dec } from "@/lib/utils";
 
 const SEASON = 2026;
-type RankingTab = "AP Poll" | "Efficiency" | "ELO";
+type RankingTab = "AP Poll" | "Efficiency" | "Scatter" | "ELO";
 type SortDir = "asc" | "desc";
 type EfficiencySortKey = "net" | "team" | "conference" | "offensiveRating" | "defensiveRating" | "netRating" | "offenseRank" | "defenseRank";
 
 export default function RankingsPage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<RankingTab>("AP Poll");
   const [pollRankings, setPollRankings] = useState<Ranking[]>([]);
   const [adjustedRatings, setAdjustedRatings] = useState<AdjustedRating[]>([]);
@@ -129,7 +132,7 @@ export default function RankingsPage() {
           AP Poll, adjusted efficiency, and ELO views for {SEASON}. {latestApWeek ? `AP Week ${latestApWeek.week} (${latestApWeek.pollDate})` : ""}
         </p>
         <div className="mt-4">
-          <Tabs tabs={["AP Poll", "Efficiency", "ELO"]} active={activeTab} onChange={(tab) => setActiveTab(tab as RankingTab)} />
+          <Tabs tabs={["AP Poll", "Efficiency", "Scatter", "ELO"]} active={activeTab} onChange={(tab) => setActiveTab(tab as RankingTab)} />
         </div>
       </section>
 
@@ -196,6 +199,10 @@ export default function RankingsPage() {
             </tbody>
           </table>
         </section>
+      ) : null}
+
+      {!loading && activeTab === "Scatter" ? (
+        <EfficiencyScatter ratings={adjustedRatings} onTeamClick={(teamName) => router.push(`/team/${encodeURIComponent(teamName)}`)} />
       ) : null}
 
       {!loading && activeTab === "ELO" ? (
