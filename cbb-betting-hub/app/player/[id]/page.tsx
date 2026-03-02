@@ -27,6 +27,7 @@ type PlayerProfile = {
   shootingStats: ShootingSeasonStats | null;
   bio: TeamRoster["players"][number] | null;
   gameStats: GamePlayerStats[];
+  playerIds: number[];
   warnings: string[];
 };
 
@@ -82,7 +83,7 @@ async function loadPlayerProfile(playerId: number, fallbackName: string | null):
   const { team, identity } = resolvePlayerIdentity(seedGames, playerId, fallbackName);
   if (!team) {
     warnings.push("Unable to determine player team.");
-    return { seasonStats: null, shootingStats: null, bio: null, gameStats: [], warnings };
+    return { seasonStats: null, shootingStats: null, bio: null, gameStats: [], playerIds: Array.from(identity.athleteIds), warnings };
   }
 
   const [teamGamesResult, teamPlayersResult, seasonResult, shootingResult, rosterResult] = await Promise.allSettled([
@@ -128,7 +129,7 @@ async function loadPlayerProfile(playerId: number, fallbackName: string | null):
     null;
   if (rosterResult.status === "rejected") warnings.push(`Roster bio unavailable: ${String(rosterResult.reason)}`);
 
-  return { seasonStats, shootingStats, bio, gameStats, warnings };
+  return { seasonStats, shootingStats, bio, gameStats, playerIds: Array.from(identity.athleteIds), warnings };
 }
 
 export default function PlayerDetailPage() {
@@ -138,15 +139,13 @@ export default function PlayerDetailPage() {
 
   const playerId = Number(params.id);
   const fallbackName = searchParams.get("name");
-  const compareId = Number(searchParams.get("compareId"));
 
   const [activeTab, setActiveTab] = useState<PlayerTab>("Season Stats");
   const [seasonStats, setSeasonStats] = useState<PlayerSeasonStats | null>(null);
   const [gameStats, setGameStats] = useState<GamePlayerStats[]>([]);
   const [shootingStats, setShootingStats] = useState<ShootingSeasonStats | null>(null);
   const [bio, setBio] = useState<TeamRoster["players"][number] | null>(null);
-  const [compareStats, setCompareStats] = useState<PlayerSeasonStats | null>(null);
-  const [compareIdInput, setCompareIdInput] = useState<string>(searchParams.get("compareId") ?? "");
+  const [resolvedPlayerIds, setResolvedPlayerIds] = useState<number[]>([playerId]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -172,16 +171,7 @@ export default function PlayerDetailPage() {
       setGameStats(primary.gameStats);
       setShootingStats(primary.shootingStats);
       setBio(primary.bio);
-
-      if (Number.isFinite(compareId) && compareId > 0 && compareId !== playerId) {
-        const compare = await loadPlayerProfile(compareId, null);
-        if (!cancelled) {
-          setCompareStats(compare.seasonStats);
-          primary.warnings.push(...compare.warnings.map((w) => `Compare player: ${w}`));
-        }
-      } else {
-        setCompareStats(null);
-      }
+      setResolvedPlayerIds(primary.playerIds);
 
       if (!primary.seasonStats && !primary.shootingStats && !primary.gameStats.length) {
         setError("Unable to load player details");
@@ -195,7 +185,7 @@ export default function PlayerDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [compareId, fallbackName, playerId]);
+  }, [fallbackName, playerId]);
 
   const name = seasonStats?.name ?? shootingStats?.athleteName ?? fallbackName ?? `Player #${playerId}`;
   const netRating = seasonStats ? dec(seasonStats.netRating, 1) : "—";
@@ -266,36 +256,10 @@ export default function PlayerDetailPage() {
 
       {warnings.length > 0 ? <ErrorMsg message={warnings.join(" • ")} /> : null}
 
-      <section className="rounded-xl border border-white/10 bg-zinc-900/60 p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm text-zinc-300">Compare player ID:</p>
-          <input
-            className="rounded border border-white/15 bg-zinc-800 px-2 py-1 text-sm text-zinc-100"
-            value={compareIdInput}
-            onChange={(e) => setCompareIdInput(e.target.value)}
-            placeholder="e.g. 4286616"
-          />
-          <button
-            type="button"
-            onClick={() => router.push(`/player/${playerId}?name=${encodeURIComponent(name)}&compareId=${encodeURIComponent(compareIdInput.trim())}`)}
-            className="rounded border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-sm text-amber-300"
-          >
-            Compare
-          </button>
-        </div>
-      </section>
-
       <Tabs tabs={["Season Stats", "Game Log", "Shooting"]} active={activeTab} onChange={(tab) => setActiveTab(tab as PlayerTab)} />
 
       {activeTab === "Season Stats" ? (
         <section className="space-y-5">
-          {compareStats ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              <CompareCard title={name} stats={seasonStats} />
-              <CompareCard title={compareStats.name} stats={compareStats} />
-            </div>
-          ) : null}
-
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {perGameStats.map((item) => (
               <StatPill key={item.label} label={item.label} value={item.value} />
@@ -338,27 +302,11 @@ export default function PlayerDetailPage() {
         </section>
       ) : null}
 
-      {activeTab === "Game Log" ? <PlayerGameLog gameStats={gameStats} playerId={playerId} onGameClick={(gameId) => router.push(`/game/${gameId}`)} /> : null}
+      {activeTab === "Game Log" ? <PlayerGameLog gameStats={gameStats} playerId={playerId} playerIds={resolvedPlayerIds} onGameClick={(gameId) => router.push(`/game/${gameId}`)} /> : null}
 
       {activeTab === "Shooting" ? (
         shootingStats ? <ShootingBreakdown stats={shootingStats} /> : <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-5 text-sm text-zinc-400">No shooting breakdown available.</div>
       ) : null}
-    </div>
-  );
-}
-
-function CompareCard({ title, stats }: { title: string; stats: PlayerSeasonStats | null }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-zinc-900/60 p-4">
-      <p className="font-semibold text-zinc-100">{title}</p>
-      <div className="mt-2 grid grid-cols-3 gap-2 text-sm text-zinc-300">
-        <span>PPG: {stats ? perGame(stats.points, stats.games) : "—"}</span>
-        <span>RPG: {stats ? perGame(stats.rebounds.total, stats.games) : "—"}</span>
-        <span>APG: {stats ? perGame(stats.assists, stats.games) : "—"}</span>
-        <span>Usage: {pct(stats?.usage)}</span>
-        <span>TS%: {pct(stats?.trueShootingPct)}</span>
-        <span>Net: {dec(stats?.netRating, 1)}</span>
-      </div>
     </div>
   );
 }

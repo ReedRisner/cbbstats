@@ -73,8 +73,8 @@ export function ShootingBreakdown({ stats }: ShootingBreakdownProps) {
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard label="Tracked Shots" value={dec(stats.trackedShots, 0)} />
-        <MetricCard label="Assisted %" value={pct(stats.assistedPct)} accent />
-        <MetricCard label="FT Rate" value={pct(stats.freeThrowRate)} accent />
+        <MetricCard label="Assisted %" value={pct(stats.assistedPct)} />
+        <MetricCard label="FT Rate" value={pct(stats.freeThrowRate)} />
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -113,9 +113,9 @@ export function ShootingBreakdown({ stats }: ShootingBreakdownProps) {
   );
 }
 
-function MetricCard({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className={`rounded-lg border px-3 py-2 ${accent ? "border-amber-400/40 bg-amber-400/10" : "border-white/10 bg-zinc-900"}`}>
+    <div className="rounded-lg border border-white/10 bg-zinc-900 px-3 py-2">
       <p className="text-xs uppercase tracking-wide text-zinc-400">{label}</p>
       <p className="font-mono text-lg text-zinc-100">{value}</p>
     </div>

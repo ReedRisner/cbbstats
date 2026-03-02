@@ -4,6 +4,7 @@ import { dec, formatDate, pct } from "@/lib/utils";
 export interface PlayerGameLogProps {
   gameStats: GamePlayerStats[];
   playerId: number;
+  playerIds?: number[];
   onGameClick: (gameId: number) => void;
 }
 
@@ -29,10 +30,12 @@ type PlayerGameRow = {
   ftAtt: number;
 };
 
-export function PlayerGameLog({ gameStats, playerId, onGameClick }: PlayerGameLogProps) {
+export function PlayerGameLog({ gameStats, playerId, playerIds, onGameClick }: PlayerGameLogProps) {
+  const targetIds = new Set<number>([playerId, ...(playerIds ?? [])]);
+
   const rows: PlayerGameRow[] = gameStats
     .flatMap((game) => {
-      const player = game.players.find((entry) => entry.athleteId === playerId);
+      const player = game.players.find((entry) => targetIds.has(entry.athleteId));
       if (!player) return [];
 
       return {
