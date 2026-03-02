@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { BettingLines } from "@/components/BettingLines";
 import { BoxScore } from "@/components/BoxScore";
 import { LineupCard } from "@/components/LineupCard";
+import { ShotChart } from "@/components/ShotChart";
+import { WinProbChart } from "@/components/WinProbChart";
 import { ErrorMsg } from "@/components/ui/ErrorMsg";
 import { Loader } from "@/components/ui/Loader";
 import { Tabs } from "@/components/ui/Tabs";
@@ -15,7 +17,7 @@ import { dec, formatDate, formatTimeWithZone, moneyline, normalizePct, pct, sign
 
 const SEASON = 2026;
 
-type TabKey = "Overview" | "Box Score" | "Play by Play" | "Lineups" | "Betting";
+type TabKey = "Overview" | "Box Score" | "Play by Play" | "Lineups" | "Shots" | "Betting";
 type LineupSortKey = "minutes" | "offRating" | "defRating" | "netRating" | "points" | "possessions";
 
 type TeamComparisonRow = {
@@ -564,14 +566,12 @@ export default function GameDetailPage() {
         </section>
       )}
 
-      <Tabs
-        tabs={["Overview", "Box Score", "Play by Play", "Lineups", "Betting"]}
-        active={tab}
-        onChange={(next) => setTab(next as TabKey)}
-      />
+      <Tabs tabs={["Overview", "Box Score", "Play by Play", "Lineups", "Shots", "Betting"]} active={tab} onChange={(next) => setTab(next as TabKey)} />
 
       {tab === "Overview" && (
         <section className="space-y-4">
+          <WinProbChart plays={plays} homeTeam={game.homeTeam} awayTeam={game.awayTeam} />
+
           <div className="overflow-x-auto rounded-xl border border-white/5 bg-zinc-900/80 p-4">
             <h3 className="mb-3 font-heading text-xl text-amber-400">Period Scoring</h3>
             <table className="min-w-[640px] w-full text-sm">
@@ -836,6 +836,8 @@ export default function GameDetailPage() {
           )}
         </section>
       )}
+
+      {tab === "Shots" && <ShotChart plays={plays} homeTeam={game.homeTeam} awayTeam={game.awayTeam} />}
 
       {tab === "Betting" && <BettingLines lines={lines} game={game} />}
     </div>
