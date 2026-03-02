@@ -47,14 +47,30 @@ export default function RankingsPage() {
     };
   }, []);
 
-  const apPoll = useMemo(
-    () =>
-      pollRankings
-        .filter((entry) => entry.pollType.toLowerCase().includes("ap"))
-        .sort((a, b) => a.ranking - b.ranking)
-        .slice(0, 25),
-    [pollRankings]
-  );
+  const latestApWeek = useMemo(() => {
+    const apEntries = pollRankings.filter((entry) => entry.pollType.toLowerCase().includes("ap"));
+    if (!apEntries.length) return null;
+
+    return apEntries.reduce((latest, entry) => {
+      if (entry.week > latest.week) return entry;
+      if (entry.week < latest.week) return latest;
+      return new Date(entry.pollDate).getTime() > new Date(latest.pollDate).getTime() ? entry : latest;
+    });
+  }, [pollRankings]);
+
+  const apPoll = useMemo(() => {
+    if (!latestApWeek) return [];
+
+    return pollRankings
+      .filter(
+        (entry) =>
+          entry.pollType.toLowerCase().includes("ap") &&
+          entry.week === latestApWeek.week &&
+          entry.pollDate === latestApWeek.pollDate
+      )
+      .sort((a, b) => a.ranking - b.ranking)
+      .slice(0, 25);
+  }, [latestApWeek, pollRankings]);
 
   const efficiencySorted = useMemo(() => {
     const getValue = (item: AdjustedRating): string | number => {
@@ -109,7 +125,9 @@ export default function RankingsPage() {
     <div className="space-y-6">
       <section className="rounded-2xl border border-white/10 bg-zinc-900/70 p-5">
         <h1 className="font-heading text-4xl text-zinc-100">Rankings</h1>
-        <p className="mt-1 text-zinc-400">AP Poll, adjusted efficiency, and ELO views for {SEASON}.</p>
+        <p className="mt-1 text-zinc-400">
+          AP Poll, adjusted efficiency, and ELO views for {SEASON}. {latestApWeek ? `AP Week ${latestApWeek.week} (${latestApWeek.pollDate})` : ""}
+        </p>
         <div className="mt-4">
           <Tabs tabs={["AP Poll", "Efficiency", "ELO"]} active={activeTab} onChange={(tab) => setActiveTab(tab as RankingTab)} />
         </div>
