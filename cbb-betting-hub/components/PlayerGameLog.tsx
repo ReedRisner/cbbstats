@@ -4,7 +4,7 @@ import { dec, formatDate, pct } from "@/lib/utils";
 export interface PlayerGameLogProps {
   gameStats: GamePlayerStats[];
   playerId: number;
-  playerIds?: number[];
+  playerName?: string;
   onGameClick: (gameId: number) => void;
 }
 
@@ -30,12 +30,23 @@ type PlayerGameRow = {
   ftAtt: number;
 };
 
-export function PlayerGameLog({ gameStats, playerId, playerIds, onGameClick }: PlayerGameLogProps) {
-  const targetIds = new Set<number>([playerId, ...(playerIds ?? [])]);
+const normalizeName = (value: string | null | undefined) => (value ?? "").trim().toLowerCase();
+
+export function PlayerGameLog({ gameStats, playerId, playerName, onGameClick }: PlayerGameLogProps) {
+  const normalizedTargetName = normalizeName(playerName);
 
   const rows: PlayerGameRow[] = gameStats
     .flatMap((game) => {
-      const player = game.players.find((entry) => targetIds.has(entry.athleteId));
+      const player = game.players.find((entry) => {
+        const normalizedEntryName = normalizeName(entry.name);
+        const nameMatch =
+          normalizedTargetName &&
+          (normalizedEntryName === normalizedTargetName ||
+            normalizedEntryName.includes(normalizedTargetName) ||
+            normalizedTargetName.includes(normalizedEntryName));
+        return entry.athleteId === playerId || Boolean(nameMatch);
+      });
+
       if (!player) return [];
 
       return {

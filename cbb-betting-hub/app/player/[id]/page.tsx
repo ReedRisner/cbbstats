@@ -27,7 +27,7 @@ type PlayerProfile = {
   shootingStats: ShootingSeasonStats | null;
   bio: TeamRoster["players"][number] | null;
   gameStats: GamePlayerStats[];
-  playerIds: number[];
+  resolvedName: string;
   warnings: string[];
 };
 
@@ -68,30 +68,6 @@ function resolvePlayerIdentity(games: GamePlayerStats[], playerId: number, fallb
   return { team: null, identity };
 }
 
-async function fetchTeamPlayerGames(team: string): Promise<GamePlayerStats[]> {
-  const limit = 200;
-  const allRows: GamePlayerStats[] = [];
-  const seenKeys = new Set<string>();
-
-  for (let page = 1; page <= 20; page += 1) {
-    const rows = await apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, team, limit, page });
-    if (!rows.length) break;
-
-    let added = 0;
-    for (const row of rows) {
-      const key = `${row.gameId}-${row.teamId}`;
-      if (seenKeys.has(key)) continue;
-      seenKeys.add(key);
-      allRows.push(row);
-      added += 1;
-    }
-
-    if (rows.length < limit || added === 0) break;
-  }
-
-  return allRows;
-}
-
 async function loadPlayerProfile(playerId: number, fallbackName: string | null): Promise<PlayerProfile> {
   const warnings: string[] = [];
 
@@ -107,11 +83,11 @@ async function loadPlayerProfile(playerId: number, fallbackName: string | null):
   const { team, identity } = resolvePlayerIdentity(seedGames, playerId, fallbackName);
   if (!team) {
     warnings.push("Unable to determine player team.");
-    return { seasonStats: null, shootingStats: null, bio: null, gameStats: [], playerIds: Array.from(identity.athleteIds), warnings };
+    return { seasonStats: null, shootingStats: null, bio: null, gameStats: [], resolvedName: fallbackName ?? "", warnings };
   }
 
   const [teamPlayersResult, seasonResult, shootingResult, rosterResult] = await Promise.allSettled([
-    fetchTeamPlayerGames(team),
+    apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, team }),
     apiFetch<PlayerSeasonStats[]>("/stats/player/season", { season: SEASON, team }),
     apiFetch<ShootingSeasonStats[]>("/stats/player/shooting/season", { season: SEASON, team }),
     apiFetch<TeamRoster[]>("/teams/roster", { season: SEASON, team }),
@@ -145,32 +121,22 @@ async function loadPlayerProfile(playerId: number, fallbackName: string | null):
     null;
   if (rosterResult.status === "rejected") warnings.push(`Roster bio unavailable: ${String(rosterResult.reason)}`);
 
-  const nameCandidates = new Set<string>(identity.names);
-  const seasonName = seasonStats?.name ? normalizeName(seasonStats.name) : "";
-  const shootingName = shootingStats?.athleteName ? normalizeName(shootingStats.athleteName) : "";
-  const bioName = bio?.name ? normalizeName(bio.name) : "";
-  if (seasonName) nameCandidates.add(seasonName);
-  if (shootingName) nameCandidates.add(shootingName);
-  if (bioName) nameCandidates.add(bioName);
+  const resolvedName = seasonStats?.name ?? shootingStats?.athleteName ?? bio?.name ?? fallbackName ?? "";
+  const normalizedResolvedName = normalizeName(resolvedName);
 
   const gameStats = teamPlayerGames.filter((game) =>
     game.players.some((player) => {
       const normalized = normalizeName(player.name);
       const nameMatch =
-        normalized &&
-        Array.from(nameCandidates).some(
-          (candidate) => normalized === candidate || normalized.includes(candidate) || candidate.includes(normalized)
-        );
-
-      return (
-        identity.athleteIds.has(player.athleteId) ||
-        (player.athleteSourceId ? identity.athleteSourceIds.has(player.athleteSourceId) : false) ||
-        Boolean(nameMatch)
-      );
+        normalizedResolvedName &&
+        (normalized === normalizedResolvedName ||
+          normalized.includes(normalizedResolvedName) ||
+          normalizedResolvedName.includes(normalized));
+      return nameMatch || player.athleteId === playerId;
     })
   );
 
-  return { seasonStats, shootingStats, bio, gameStats, playerIds: Array.from(identity.athleteIds), warnings };
+  return { seasonStats, shootingStats, bio, gameStats, resolvedName, warnings };
 }
 
 export default function PlayerDetailPage() {
@@ -186,7 +152,7 @@ export default function PlayerDetailPage() {
   const [gameStats, setGameStats] = useState<GamePlayerStats[]>([]);
   const [shootingStats, setShootingStats] = useState<ShootingSeasonStats | null>(null);
   const [bio, setBio] = useState<TeamRoster["players"][number] | null>(null);
-  const [resolvedPlayerIds, setResolvedPlayerIds] = useState<number[]>([playerId]);
+  const [resolvedPlayerName, setResolvedPlayerName] = useState<string>(fallbackName ?? "");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -212,7 +178,7 @@ export default function PlayerDetailPage() {
       setGameStats(primary.gameStats);
       setShootingStats(primary.shootingStats);
       setBio(primary.bio);
-      setResolvedPlayerIds(primary.playerIds);
+      setResolvedPlayerName(primary.resolvedName || fallbackName || "");
 
       if (!primary.seasonStats && !primary.shootingStats && !primary.gameStats.length) {
         setError("Unable to load player details");
@@ -343,7 +309,7 @@ export default function PlayerDetailPage() {
         </section>
       ) : null}
 
-      {activeTab === "Game Log" ? <PlayerGameLog gameStats={gameStats} playerId={playerId} playerIds={resolvedPlayerIds} onGameClick={(gameId) => router.push(`/game/${gameId}`)} /> : null}
+      {activeTab === "Game Log" ? <PlayerGameLog gameStats={gameStats} playerId={playerId} playerName={resolvedPlayerName || name} onGameClick={(gameId) => router.push(`/game/${gameId}`)} /> : null}
 
       {activeTab === "Shooting" ? (
         shootingStats ? <ShootingBreakdown stats={shootingStats} /> : <div className="rounded-xl border border-white/10 bg-zinc-900/50 p-5 text-sm text-zinc-400">No shooting breakdown available.</div>
