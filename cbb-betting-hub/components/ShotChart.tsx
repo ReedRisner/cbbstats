@@ -31,30 +31,72 @@ function toRangeBucket(range: string | undefined): Exclude<RangeFilter, "all"> {
   return "mid";
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalizeWidth(rawWidth: number): number {
+  // Handle both 0..50 and -25..25 coordinate systems.
+  if (rawWidth < 0) return clamp(rawWidth + 25, 0, 50);
+  if (rawWidth > 50) return clamp(rawWidth / 2, 0, 50);
+  return clamp(rawWidth, 0, 50);
+}
+
 export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
   const [teamFilter, setTeamFilter] = useState<TeamFilter>("both");
   const [rangeFilter, setRangeFilter] = useState<RangeFilter>("all");
   const [playerFilter, setPlayerFilter] = useState<string>("all");
 
   const shots = useMemo<ShotPoint[]>(() => {
-    return plays
-      .filter((play) => Boolean(play.shotInfo?.location && Number.isFinite(play.shotInfo.location.x) && Number.isFinite(play.shotInfo.location.y)))
-      .map((play) => {
-        const rawX = play.shotInfo!.location.x;
-        const rawY = play.shotInfo!.location.y;
-        const halfX = rawX > 47 ? 94 - rawX : rawX;
-        return {
-          id: play.id,
-          isHomeTeam: play.isHomeTeam,
-          team: play.team,
-          made: play.shotInfo!.made,
-          x: Math.max(0, Math.min(47, halfX)) * 10,
-          y: Math.max(0, Math.min(50, rawY)) * 10,
-          player: play.shotInfo!.shooter?.name ?? "Unknown",
-          rangeBucket: toRangeBucket(play.shotInfo!.range),
-          rawRange: play.shotInfo!.range ?? "Unknown",
-        };
-      });
+    const shotPlays = plays.filter((play) => Boolean(play.shotInfo?.location && Number.isFinite(play.shotInfo.location.x) && Number.isFinite(play.shotInfo.location.y)));
+
+    if (!shotPlays.length) return [];
+
+    const xs = shotPlays.map((play) => play.shotInfo!.location.x);
+    const ys = shotPlays.map((play) => play.shotInfo!.location.y);
+    const xSpan = Math.max(...xs) - Math.min(...xs);
+    const ySpan = Math.max(...ys) - Math.min(...ys);
+
+    const xIsLengthAxis = xSpan >= ySpan;
+    const lengthValues = shotPlays.map((play) => (xIsLengthAxis ? play.shotInfo!.location.x : play.shotInfo!.location.y));
+    const widthValues = shotPlays.map((play) => (xIsLengthAxis ? play.shotInfo!.location.y : play.shotInfo!.location.x));
+
+    const lengthMin = Math.min(...lengthValues);
+    const lengthMax = Math.max(...lengthValues);
+    const lengthRange = Math.max(lengthMax - lengthMin, 1);
+
+    const widthMin = Math.min(...widthValues);
+    const widthMax = Math.max(...widthValues);
+    const widthRange = Math.max(widthMax - widthMin, 1);
+
+    const useStandardWidth = widthMin >= -30 && widthMax <= 120;
+
+    return shotPlays.map((play) => {
+      const rawX = play.shotInfo!.location.x;
+      const rawY = play.shotInfo!.location.y;
+      const lengthCoord = xIsLengthAxis ? rawX : rawY;
+      const widthCoord = xIsLengthAxis ? rawY : rawX;
+
+      const normalizedLengthRaw = ((lengthCoord - lengthMin) / lengthRange) * 94;
+      const foldedLength = Math.min(normalizedLengthRaw, 94 - normalizedLengthRaw);
+      const normalizedLength = clamp((foldedLength / 47) * 47, 0, 47);
+
+      const normalizedWidth = useStandardWidth
+        ? normalizeWidth(widthCoord)
+        : clamp(((widthCoord - widthMin) / widthRange) * 50, 0, 50);
+
+      return {
+        id: play.id,
+        isHomeTeam: play.isHomeTeam,
+        team: play.team,
+        made: play.shotInfo!.made,
+        x: (normalizedWidth / 50) * 470,
+        y: (normalizedLength / 47) * 500,
+        player: play.shotInfo!.shooter?.name ?? "Unknown",
+        rangeBucket: toRangeBucket(play.shotInfo!.range),
+        rawRange: play.shotInfo!.range ?? "Unknown",
+      };
+    });
   }, [plays]);
 
   const players = useMemo(() => {
@@ -137,7 +179,7 @@ export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
             <circle
               key={shot.id}
               cx={shot.x}
-              cy={500 - shot.y}
+              cy={shot.y}
               r={4}
               fill={shot.made ? "#4ade80" : "none"}
               stroke={shot.made ? "#4ade80" : "#f87171"}
