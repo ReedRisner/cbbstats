@@ -56,13 +56,20 @@ export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
     const ys = shotPlays.map((play) => play.shotInfo!.location.y);
     const xSpan = Math.max(...xs) - Math.min(...xs);
     const ySpan = Math.max(...ys) - Math.min(...ys);
-    const maxX = Math.max(...xs);
-    const maxY = Math.max(...ys);
 
-    // Prefer known full-court axis (typically > 60 in either feet or normalized 0..100 units).
-    const xLooksLikeLength = maxX > 60;
-    const yLooksLikeLength = maxY > 60;
-    const xIsLengthAxis = xLooksLikeLength && !yLooksLikeLength ? true : !xLooksLikeLength && yLooksLikeLength ? false : xSpan >= ySpan;
+    const xIsLengthAxis = xSpan >= ySpan;
+    const lengthValues = shotPlays.map((play) => (xIsLengthAxis ? play.shotInfo!.location.x : play.shotInfo!.location.y));
+    const widthValues = shotPlays.map((play) => (xIsLengthAxis ? play.shotInfo!.location.y : play.shotInfo!.location.x));
+
+    const lengthMin = Math.min(...lengthValues);
+    const lengthMax = Math.max(...lengthValues);
+    const lengthRange = Math.max(lengthMax - lengthMin, 1);
+
+    const widthMin = Math.min(...widthValues);
+    const widthMax = Math.max(...widthValues);
+    const widthRange = Math.max(widthMax - widthMin, 1);
+
+    const useStandardWidth = widthMin >= -30 && widthMax <= 120;
 
     return shotPlays.map((play) => {
       const rawX = play.shotInfo!.location.x;
@@ -70,12 +77,13 @@ export function ShotChart({ plays, homeTeam, awayTeam }: ShotChartProps) {
       const lengthCoord = xIsLengthAxis ? rawX : rawY;
       const widthCoord = xIsLengthAxis ? rawY : rawX;
 
-      const fullCourtLength = Math.max(maxX, maxY) > 97 ? 100 : 94;
-      const halfCourtLength = fullCourtLength / 2;
+      const normalizedLengthRaw = ((lengthCoord - lengthMin) / lengthRange) * 94;
+      const foldedLength = Math.min(normalizedLengthRaw, 94 - normalizedLengthRaw);
+      const normalizedLength = clamp((foldedLength / 47) * 47, 0, 47);
 
-      const foldedLength = Math.min(lengthCoord, fullCourtLength - lengthCoord);
-      const normalizedLength = clamp((foldedLength / halfCourtLength) * 47, 0, 47);
-      const normalizedWidth = normalizeWidth(widthCoord);
+      const normalizedWidth = useStandardWidth
+        ? normalizeWidth(widthCoord)
+        : clamp(((widthCoord - widthMin) / widthRange) * 50, 0, 50);
 
       return {
         id: play.id,
