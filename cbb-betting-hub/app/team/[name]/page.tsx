@@ -328,17 +328,14 @@ export default function TeamDetailPage() {
                 <div>
                   <p className="text-xs text-zinc-400">Adj Off</p>
                   <p className="font-mono text-lg text-emerald-400">{dec(adjusted?.offensiveRating, 1)}</p>
-                  <p className="text-xs text-zinc-500">#{adjusted?.rankings.offense ?? "—"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-zinc-400">Adj Def</p>
                   <p className="font-mono text-lg text-rose-400">{dec(adjusted?.defensiveRating, 1)}</p>
-                  <p className="text-xs text-zinc-500">#{adjusted?.rankings.defense ?? "—"}</p>
                 </div>
                 <div>
                   <p className="text-xs text-zinc-400">Adj Net</p>
                   <p className="font-mono text-lg text-amber-300">{dec(adjusted?.netRating, 1)}</p>
-                  <p className="text-xs text-zinc-500">#{adjusted?.rankings.net ?? "—"}</p>
                 </div>
               </div>
             </div>
