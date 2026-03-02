@@ -8,13 +8,14 @@ import { Loader } from "@/components/ui/Loader";
 import { StatPill } from "@/components/ui/StatPill";
 import { Tabs } from "@/components/ui/Tabs";
 import { apiFetch } from "@/lib/api";
-import { AdjustedRating, Game, PlayerSeasonStats, ShootingSeasonStats, Team, TeamRoster, TeamSeasonStats } from "@/lib/types";
+import { AdjustedRating, Game, Lineup, PlayerSeasonStats, ShootingSeasonStats, Team, TeamRoster, TeamSeasonStats } from "@/lib/types";
 import { dec, formatDate, heightStr, pct, perGame } from "@/lib/utils";
 
 const SEASON = 2026;
 
-type TeamTab = "Overview" | "Roster" | "Schedule" | "Shooting";
+type TeamTab = "Overview" | "Roster" | "Schedule" | "Shooting" | "Lineups";
 type RosterSortKey = "jersey" | "name" | "position" | "height" | "weight" | "points" | "rebounds" | "assists";
+type LineupSortKey = "netRating" | "offenseRating" | "defenseRating" | "pace" | "minutes" | "possessions" | "trueShooting" | "effectiveFieldGoalPct" | "turnoverRatio" | "offensiveReboundPct" | "freeThrowRate";
 
 interface RosterRow {
   player: TeamRoster["players"][number];
@@ -66,8 +67,11 @@ export default function TeamDetailPage() {
   const [adjusted, setAdjusted] = useState<AdjustedRating | null>(null);
   const [games, setGames] = useState<Game[]>([]);
   const [playerStats, setPlayerStats] = useState<PlayerSeasonStats[]>([]);
+  const [lineups, setLineups] = useState<Lineup[]>([]);
   const [sortKey, setSortKey] = useState<RosterSortKey>("jersey");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [lineupSortKey, setLineupSortKey] = useState<LineupSortKey>("netRating");
+  const [lineupSortDirection, setLineupSortDirection] = useState<"asc" | "desc">("desc");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +91,7 @@ export default function TeamDetailPage() {
         apiFetch<AdjustedRating[]>("/ratings/adjusted", { season: SEASON, team: teamName }),
         apiFetch<Game[]>("/games", { season: SEASON, team: teamName }),
         apiFetch<PlayerSeasonStats[]>("/stats/player/season", { season: SEASON, team: teamName }),
+        apiFetch<Lineup[]>("/lineups/team", { season: SEASON, team: teamName }),
       ]);
 
       if (cancelled) return;
@@ -98,6 +103,7 @@ export default function TeamDetailPage() {
       const adjustedRows = results[4].status === "fulfilled" ? results[4].value : [];
       const gamesRows = results[5].status === "fulfilled" ? results[5].value : [];
       const playerRows = results[6].status === "fulfilled" ? results[6].value : [];
+      const lineupRows = results[7].status === "fulfilled" ? results[7].value : [];
 
       const matchedTeam = findTeamByName(teams, teamName);
       const matchedTeamStats =
@@ -145,6 +151,12 @@ export default function TeamDetailPage() {
         (game) => resolvedTeamNames.has(normalizeName(game.homeTeam)) || resolvedTeamNames.has(normalizeName(game.awayTeam))
       );
 
+      const matchedLineups = lineupRows.filter((lineup) => {
+        const matchesId = resolvedTeamId != null && lineup.teamId === resolvedTeamId;
+        const matchesName = resolvedTeamNames.has(normalizeName(lineup.team));
+        return matchesId || matchesName;
+      });
+
       setTeam(matchedTeam);
       setTeamStats(matchedTeamStats);
       setRoster(matchedRoster);
@@ -152,6 +164,7 @@ export default function TeamDetailPage() {
       setAdjusted(matchedAdjusted);
       setGames(filteredGames);
       setPlayerStats(playerRows);
+      setLineups(matchedLineups);
 
       const noCoreData = !matchedTeam && !matchedTeamStats && !matchedRoster && !filteredGames.length;
       if (noCoreData) setError("Unable to load team details.");
@@ -257,6 +270,42 @@ export default function TeamDetailPage() {
     [games]
   );
 
+  const sortedLineups = useMemo(() => {
+    const getValue = (lineup: Lineup): number => {
+      switch (lineupSortKey) {
+        case "offenseRating":
+          return lineup.offenseRating;
+        case "defenseRating":
+          return lineup.defenseRating;
+        case "pace":
+          return lineup.pace;
+        case "minutes":
+          return lineup.totalSeconds / 60;
+        case "possessions":
+          return lineup.teamStats.possessions;
+        case "trueShooting":
+          return lineup.teamStats.trueShooting;
+        case "effectiveFieldGoalPct":
+          return lineup.teamStats.fourFactors.effectiveFieldGoalPct;
+        case "turnoverRatio":
+          return lineup.teamStats.fourFactors.turnoverRatio;
+        case "offensiveReboundPct":
+          return lineup.teamStats.fourFactors.offensiveReboundPct;
+        case "freeThrowRate":
+          return lineup.teamStats.fourFactors.freeThrowRate;
+        case "netRating":
+        default:
+          return lineup.netRating;
+      }
+    };
+
+    return [...lineups].sort((a, b) => {
+      const left = getValue(a);
+      const right = getValue(b);
+      return lineupSortDirection === "asc" ? left - right : right - left;
+    });
+  }, [lineupSortDirection, lineupSortKey, lineups]);
+
   const shotRows = useMemo(
     () =>
       shooting
@@ -284,6 +333,16 @@ export default function TeamDetailPage() {
     }
     setSortKey(key);
     setSortDirection(key === "name" || key === "position" ? "asc" : "desc");
+  };
+
+  const onLineupSort = (key: LineupSortKey) => {
+    if (lineupSortKey === key) {
+      setLineupSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      return;
+    }
+
+    setLineupSortKey(key);
+    setLineupSortDirection(key === "defenseRating" || key === "turnoverRatio" ? "asc" : "desc");
   };
 
   return (
@@ -343,7 +402,7 @@ export default function TeamDetailPage() {
         </div>
       </header>
 
-      <Tabs tabs={["Overview", "Roster", "Schedule", "Shooting"]} active={activeTab} onChange={(tab) => setActiveTab(tab as TeamTab)} />
+      <Tabs tabs={["Overview", "Roster", "Schedule", "Shooting", "Lineups"]} active={activeTab} onChange={(tab) => setActiveTab(tab as TeamTab)} />
 
       {activeTab === "Overview" && (
         <section className="space-y-4">
@@ -471,6 +530,77 @@ export default function TeamDetailPage() {
             );
           })}
           {!sortedGames.length ? <p className="text-zinc-400">No schedule data available.</p> : null}
+        </section>
+      )}
+
+
+      {activeTab === "Lineups" && (
+        <section className="space-y-3 rounded-xl border border-white/10 bg-zinc-900/70 p-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm uppercase tracking-wide text-zinc-400">Best Lineups (sortable)</h2>
+            <p className="text-xs text-zinc-500">Sorted by {lineupSortKey} ({lineupSortDirection})</p>
+          </div>
+
+          {sortedLineups.length ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="border-b border-white/10 text-zinc-300">
+                  <tr>
+                    {[
+                      ["Lineup", null],
+                      ["Minutes", "minutes"],
+                      ["Net", "netRating"],
+                      ["Off", "offenseRating"],
+                      ["Def", "defenseRating"],
+                      ["Pace", "pace"],
+                      ["TS%", "trueShooting"],
+                      ["eFG%", "effectiveFieldGoalPct"],
+                      ["TO Ratio", "turnoverRatio"],
+                      ["OREB%", "offensiveReboundPct"],
+                      ["FT Rate", "freeThrowRate"],
+                    ].map(([label, key]) => (
+                      <th key={label} className="px-3 py-2 text-left">
+                        {key ? (
+                          <button type="button" className="hover:text-amber-300" onClick={() => onLineupSort(key as LineupSortKey)}>
+                            {label}
+                          </button>
+                        ) : (
+                          label
+                        )}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedLineups.map((lineup) => (
+                    <tr key={lineup.idHash} className="border-b border-white/5 text-zinc-200">
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-1">
+                          {lineup.athletes.map((athlete) => (
+                            <Link key={athlete.id} href={`/player/${athlete.id}?name=${encodeURIComponent(athlete.name)}`} className="rounded border border-white/10 px-1.5 py-0.5 text-xs hover:border-amber-400/40 hover:text-amber-300">
+                              {athlete.name}
+                            </Link>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 font-mono">{dec(lineup.totalSeconds / 60, 1)}</td>
+                      <td className="px-3 py-2 font-mono text-amber-300">{dec(lineup.netRating, 1)}</td>
+                      <td className="px-3 py-2 font-mono">{dec(lineup.offenseRating, 1)}</td>
+                      <td className="px-3 py-2 font-mono">{dec(lineup.defenseRating, 1)}</td>
+                      <td className="px-3 py-2 font-mono">{dec(lineup.pace, 1)}</td>
+                      <td className="px-3 py-2 font-mono">{pct(lineup.teamStats.trueShooting)}</td>
+                      <td className="px-3 py-2 font-mono">{pct(lineup.teamStats.fourFactors.effectiveFieldGoalPct)}</td>
+                      <td className="px-3 py-2 font-mono">{pct(lineup.teamStats.fourFactors.turnoverRatio)}</td>
+                      <td className="px-3 py-2 font-mono">{pct(lineup.teamStats.fourFactors.offensiveReboundPct)}</td>
+                      <td className="px-3 py-2 font-mono">{pct(lineup.teamStats.fourFactors.freeThrowRate)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-zinc-400">No lineup data available.</p>
+          )}
         </section>
       )}
 
