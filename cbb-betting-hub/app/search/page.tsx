@@ -10,7 +10,10 @@ import { dec, pct } from "@/lib/utils";
 
 const SEASON = 2026;
 const RESULT_LIMIT = 50;
-const LEADERBOARD_LIMIT = 120;
+const LEADERBOARD_LIMIT = 10;
+const MIN_GAMES = 5;
+const MIN_FGA = 120;
+const MIN_3PA = 60;
 
 type LeaderMetric = {
   key: string;
@@ -18,17 +21,64 @@ type LeaderMetric = {
   valueLabel: string;
   value: (player: PlayerSeasonStats) => number;
   display: (player: PlayerSeasonStats) => string;
-  minGames?: number;
+  qualifies?: (player: PlayerSeasonStats) => boolean;
 };
 
 const leaderMetrics: LeaderMetric[] = [
-  { key: "ppg", label: "Scoring", valueLabel: "PPG", value: (p) => (p.games ? p.points / p.games : 0), display: (p) => dec(p.games ? p.points / p.games : 0, 1), minGames: 5 },
-  { key: "rpg", label: "Rebounding", valueLabel: "RPG", value: (p) => (p.games ? p.rebounds.total / p.games : 0), display: (p) => dec(p.games ? p.rebounds.total / p.games : 0, 1), minGames: 5 },
-  { key: "apg", label: "Playmaking", valueLabel: "APG", value: (p) => (p.games ? p.assists / p.games : 0), display: (p) => dec(p.games ? p.assists / p.games : 0, 1), minGames: 5 },
-  { key: "fg", label: "Field Goal", valueLabel: "FG%", value: (p) => p.fieldGoals.pct, display: (p) => pct(p.fieldGoals.pct), minGames: 5 },
-  { key: "3pt", label: "Three Point", valueLabel: "3PT%", value: (p) => p.threePointFieldGoals.pct, display: (p) => pct(p.threePointFieldGoals.pct), minGames: 5 },
-  { key: "ts", label: "True Shooting", valueLabel: "TS%", value: (p) => p.trueShootingPct, display: (p) => pct(p.trueShootingPct), minGames: 5 },
+  {
+    key: "ppg",
+    label: "Scoring",
+    valueLabel: "PPG",
+    value: (p) => (p.games ? p.points / p.games : 0),
+    display: (p) => dec(p.games ? p.points / p.games : 0, 1),
+    qualifies: (p) => p.games >= MIN_GAMES,
+  },
+  {
+    key: "rpg",
+    label: "Rebounding",
+    valueLabel: "RPG",
+    value: (p) => (p.games ? p.rebounds.total / p.games : 0),
+    display: (p) => dec(p.games ? p.rebounds.total / p.games : 0, 1),
+    qualifies: (p) => p.games >= MIN_GAMES,
+  },
+  {
+    key: "apg",
+    label: "Playmaking",
+    valueLabel: "APG",
+    value: (p) => (p.games ? p.assists / p.games : 0),
+    display: (p) => dec(p.games ? p.assists / p.games : 0, 1),
+    qualifies: (p) => p.games >= MIN_GAMES,
+  },
+  {
+    key: "fg",
+    label: "Field Goal",
+    valueLabel: "FG%",
+    value: (p) => p.fieldGoals.pct,
+    display: (p) => pct(p.fieldGoals.pct),
+    qualifies: (p) => p.games >= MIN_GAMES && p.fieldGoals.attempted >= MIN_FGA,
+  },
+  {
+    key: "3pt",
+    label: "Three Point",
+    valueLabel: "3PT%",
+    value: (p) => p.threePointFieldGoals.pct,
+    display: (p) => pct(p.threePointFieldGoals.pct),
+    qualifies: (p) => p.games >= MIN_GAMES && p.threePointFieldGoals.attempted >= MIN_3PA,
+  },
+  {
+    key: "ts",
+    label: "True Shooting",
+    valueLabel: "TS%",
+    value: (p) => p.trueShootingPct,
+    display: (p) => pct(p.trueShootingPct),
+    qualifies: (p) => p.games >= MIN_GAMES && p.fieldGoals.attempted >= MIN_FGA,
+  },
 ];
+
+function getGrade(player: PlayerSeasonStats): string {
+  const withGrade = player as PlayerSeasonStats & { grade?: string; class?: string; year?: string };
+  return withGrade.grade ?? withGrade.class ?? withGrade.year ?? "—";
+}
 
 export default function PlayerSearchPage() {
   const [query, setQuery] = useState("");
@@ -42,7 +92,7 @@ export default function PlayerSearchPage() {
       leaderMetrics.map((metric) => ({
         ...metric,
         entries: (allPlayers ?? [])
-          .filter((player) => (metric.minGames ? player.games >= metric.minGames : true))
+          .filter((player) => (metric.qualifies ? metric.qualifies(player) : true))
           .sort((a, b) => metric.value(b) - metric.value(a))
           .slice(0, LEADERBOARD_LIMIT),
       })),
@@ -103,7 +153,7 @@ export default function PlayerSearchPage() {
       </section>
 
       <section className="rounded-2xl border border-white/10 bg-zinc-900/70 p-5">
-        <h2 className="mb-4 font-heading text-2xl text-zinc-100">Top 120 National Leaders</h2>
+        <h2 className="mb-4 font-heading text-2xl text-zinc-100">Top 10 National Leaders</h2>
         {allPlayers == null ? (
           <p className="text-sm text-zinc-400">Run a search to load player leaderboard boxes.</p>
         ) : (
@@ -111,9 +161,9 @@ export default function PlayerSearchPage() {
             {leaderboardData.map((board) => (
               <article key={board.key} className="rounded-xl border border-white/10 bg-zinc-950/80 p-4">
                 <h3 className="font-semibold text-amber-300">{board.label}</h3>
-                <p className="mb-3 text-xs uppercase tracking-wide text-zinc-400">Top 120 by {board.valueLabel}</p>
+                <p className="mb-3 text-xs uppercase tracking-wide text-zinc-400">Top 10 by {board.valueLabel}</p>
                 <div className="space-y-2">
-                  {board.entries.slice(0, 5).map((player, idx) => (
+                  {board.entries.map((player, idx) => (
                     <div key={`${board.key}-${player.athleteId}-${idx}`} className="flex items-center justify-between gap-3 text-sm">
                       <Link href={`/player/${player.athleteId}?name=${encodeURIComponent(player.name)}`} className="truncate text-zinc-100 hover:text-amber-300">
                         {idx + 1}. {player.name}
@@ -139,13 +189,13 @@ export default function PlayerSearchPage() {
                   <th className="px-3 py-2">Name</th>
                   <th className="px-3 py-2">Team</th>
                   <th className="px-3 py-2">Position</th>
-                  <th className="px-3 py-2 font-mono">Games</th>
+                  <th className="px-3 py-2">Grade</th>
+                  <th className="px-3 py-2 font-mono">MPG</th>
                   <th className="px-3 py-2 font-mono">PPG</th>
-                  <th className="px-3 py-2 font-mono">RPG</th>
                   <th className="px-3 py-2 font-mono">APG</th>
+                  <th className="px-3 py-2 font-mono">RPG</th>
                   <th className="px-3 py-2 font-mono">FG%</th>
-                  <th className="px-3 py-2 font-mono">3PT%</th>
-                  <th className="px-3 py-2 font-mono text-amber-300">TS%</th>
+                  <th className="px-3 py-2 font-mono">3P%</th>
                   <th className="px-3 py-2 font-mono text-amber-300">Net Rating</th>
                 </tr>
               </thead>
@@ -155,13 +205,13 @@ export default function PlayerSearchPage() {
                     <td className="px-3 py-2"><Link href={`/player/${player.athleteId}?name=${encodeURIComponent(player.name)}`} className="text-white hover:text-amber-300">{player.name}</Link></td>
                     <td className="px-3 py-2">{player.team}</td>
                     <td className="px-3 py-2">{player.position || "—"}</td>
-                    <td className="px-3 py-2 font-mono">{player.games}</td>
+                    <td className="px-3 py-2">{getGrade(player)}</td>
+                    <td className="px-3 py-2 font-mono">{dec(player.games ? player.minutes / player.games : 0, 1)}</td>
                     <td className="px-3 py-2 font-mono">{dec(player.games ? player.points / player.games : 0, 1)}</td>
-                    <td className="px-3 py-2 font-mono">{dec(player.games ? player.rebounds.total / player.games : 0, 1)}</td>
                     <td className="px-3 py-2 font-mono">{dec(player.games ? player.assists / player.games : 0, 1)}</td>
+                    <td className="px-3 py-2 font-mono">{dec(player.games ? player.rebounds.total / player.games : 0, 1)}</td>
                     <td className="px-3 py-2 font-mono">{pct(player.fieldGoals.pct)}</td>
                     <td className="px-3 py-2 font-mono">{pct(player.threePointFieldGoals.pct)}</td>
-                    <td className="px-3 py-2 font-mono text-amber-300">{pct(player.trueShootingPct)}</td>
                     <td className="px-3 py-2 font-mono text-amber-300">{dec(player.netRating, 1)}</td>
                   </tr>
                 ))}
