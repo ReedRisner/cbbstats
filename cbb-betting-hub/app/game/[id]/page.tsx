@@ -244,6 +244,7 @@ export default function GameDetailPage() {
 
       setGame(resolvedGame);
 
+      const resolvedGameId = resolvedGame.id;
       const resolvedSeason = resolvedGame.season ?? SEASON;
       const awayTeam = resolvedGame.awayTeam;
       const homeTeam = resolvedGame.homeTeam;
@@ -260,15 +261,15 @@ export default function GameDetailPage() {
         fetchByTeam<GameTeamStats>("/games/teams"),
         fetchByTeam<GamePlayerStats>("/games/players"),
         fetchByTeam<BettingLine>("/lines"),
-        apiFetch<Lineup[]>(`/lineups/game/${gameId}`),
-        apiFetch<Play[]>(`/plays/game/${gameId}`),
+        apiFetch<Lineup[]>(`/lineups/game/${resolvedGameId}`),
+        apiFetch<Play[]>(`/plays/game/${resolvedGameId}`),
       ]);
 
       if (cancelled) return;
 
       const teamResult = results[0];
       if (teamResult.status === "fulfilled") {
-        setTeamStats(teamResult.value.filter((row) => row.gameId === gameId));
+        setTeamStats(teamResult.value.filter((row) => row.gameId === resolvedGameId));
       } else {
         setTeamStats([]);
         nextWarnings.push(`Team stats unavailable: ${String(teamResult.reason)}`);
@@ -276,7 +277,7 @@ export default function GameDetailPage() {
 
       const playerResult = results[1];
       if (playerResult.status === "fulfilled") {
-        setPlayerStats(playerResult.value.filter((row) => row.gameId === gameId));
+        setPlayerStats(playerResult.value.filter((row) => row.gameId === resolvedGameId));
       } else {
         setPlayerStats([]);
         nextWarnings.push(`Player stats unavailable: ${String(playerResult.reason)}`);
@@ -284,7 +285,7 @@ export default function GameDetailPage() {
 
       const linesResult = results[2];
       if (linesResult.status === "fulfilled") {
-        setLines(linesResult.value.find((row) => row.gameId === gameId) ?? null);
+        setLines(linesResult.value.find((row) => row.gameId === resolvedGameId) ?? null);
       } else {
         setLines(null);
         nextWarnings.push(`Betting lines unavailable: ${String(linesResult.reason)}`);
@@ -300,7 +301,7 @@ export default function GameDetailPage() {
 
       const playsResult = results[4];
       if (playsResult.status === "fulfilled") {
-        setPlays(playsResult.value.filter((row) => row.gameId === gameId));
+        setPlays(playsResult.value.filter((row) => row.gameId === resolvedGameId));
       } else {
         setPlays([]);
         nextWarnings.push(`Play-by-play unavailable: ${String(playsResult.reason)}`);
