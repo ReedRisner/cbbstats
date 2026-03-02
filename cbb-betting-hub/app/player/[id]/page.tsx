@@ -68,11 +68,35 @@ function resolvePlayerIdentity(games: GamePlayerStats[], playerId: number, fallb
   return { team: null, identity };
 }
 
+async function fetchTeamPlayerGames(team: string): Promise<GamePlayerStats[]> {
+  const limit = 200;
+  const allRows: GamePlayerStats[] = [];
+  const seenKeys = new Set<string>();
+
+  for (let page = 1; page <= 20; page += 1) {
+    const rows = await apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, team, limit, page });
+    if (!rows.length) break;
+
+    let added = 0;
+    for (const row of rows) {
+      const key = `${row.gameId}-${row.teamId}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      allRows.push(row);
+      added += 1;
+    }
+
+    if (rows.length < limit || added === 0) break;
+  }
+
+  return allRows;
+}
+
 async function loadPlayerProfile(playerId: number, fallbackName: string | null): Promise<PlayerProfile> {
   const warnings: string[] = [];
 
   const seedGamesResult = await Promise.allSettled([
-    apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, athleteId: playerId }),
+    apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, athleteId: playerId, limit: 200 }),
   ]);
 
   const seedGames = seedGamesResult[0].status === "fulfilled" ? seedGamesResult[0].value : [];
@@ -87,7 +111,7 @@ async function loadPlayerProfile(playerId: number, fallbackName: string | null):
   }
 
   const [teamPlayersResult, seasonResult, shootingResult, rosterResult] = await Promise.allSettled([
-    apiFetch<GamePlayerStats[]>("/games/players", { season: SEASON, team }),
+    fetchTeamPlayerGames(team),
     apiFetch<PlayerSeasonStats[]>("/stats/player/season", { season: SEASON, team }),
     apiFetch<ShootingSeasonStats[]>("/stats/player/shooting/season", { season: SEASON, team }),
     apiFetch<TeamRoster[]>("/teams/roster", { season: SEASON, team }),
@@ -132,10 +156,16 @@ async function loadPlayerProfile(playerId: number, fallbackName: string | null):
   const gameStats = teamPlayerGames.filter((game) =>
     game.players.some((player) => {
       const normalized = normalizeName(player.name);
+      const nameMatch =
+        normalized &&
+        Array.from(nameCandidates).some(
+          (candidate) => normalized === candidate || normalized.includes(candidate) || candidate.includes(normalized)
+        );
+
       return (
         identity.athleteIds.has(player.athleteId) ||
         (player.athleteSourceId ? identity.athleteSourceIds.has(player.athleteSourceId) : false) ||
-        (normalized ? nameCandidates.has(normalized) : false)
+        Boolean(nameMatch)
       );
     })
   );
